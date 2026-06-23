@@ -1,0 +1,17 @@
+{
+  "name": "stemsplitter",
+  "version": "0.1.0",
+  "description": "Stem splitter DAW app con Demucs",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.6.0",
+    "esbuild": "^0.28.1"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^1.6.0"
+  }
+}
