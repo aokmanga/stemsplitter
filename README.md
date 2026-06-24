@@ -1,64 +1,77 @@
 # StemSplitter
 
-App DAW leggera per macOS che separa un file audio in 4 tracce (Voce, Batteria, Basso, Altro) tramite **Demucs**, con waveform interattive, mute/solo e controllo volume per traccia.
+App DAW leggera per macOS che separa un file audio in 4 tracce (Voce, Batteria, Basso, Altro) tramite **demucs-mlx**, con waveform interattive e controlli per traccia.
 
-Costruita con **Tauri** (Rust + HTML/CSS/JS nativo), nessun Electron.
+Costruita con **Tauri 1.x** (Rust + HTML/CSS/JS nativo) — nessun Electron.
+
+---
+
+## Funzionalità
+
+- **Separazione automatica** in 4 stem: Voce, Batteria, Basso, Altro
+- **Waveform interattive** per ogni traccia con seek via click
+- **Mute / Solo** per traccia
+- **Volume individuale** per traccia (0–150%)
+- **Volume master** e **velocità di riproduzione** (0.5x–2x)
+- **Reset** rapido di tutti i controlli al valore di default
+- **Colore waveform personalizzabile** per traccia (persistente)
+- **Libreria brani** — lista dei brani già separati con durata e data
+- **Cartella libreria configurabile** e persistente tra sessioni
+- Output in **MP3** (conversione automatica via ffmpeg dopo la separazione)
 
 ---
 
 ## Prerequisiti
-
-Assicurati di avere tutto installato:
 
 ```bash
 # 1. Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
-# 2. Tauri CLI (scegli uno dei due)
+# 2. Tauri CLI
 cargo install tauri-cli --version "^1.6"
-# oppure con npm: npm install -g @tauri-apps/cli
 
-# 3. demucs (se non già installato)
-pip install demucs
+# 3. demucs-mlx (versione ottimizzata per Apple Silicon)
+pip install demucs-mlx
 
-# 4. ffmpeg (per leggere qualsiasi formato)
+# 4. ffmpeg
 brew install ffmpeg
 
-# 5. Dipendenze macOS per Tauri
+# 5. Node.js (per il bundle delle API Tauri)
+# https://nodejs.org
+
+# 6. Strumenti Xcode
 xcode-select --install
 ```
 
 ---
 
-## Avvio rapido
+## Avvio
 
 ```bash
 cd stemsplitter
 
-# Con lo script (consigliato)
-./setup.sh
+# Installa le dipendenze npm e genera il bundle API Tauri
+npm install
+node_modules/.bin/esbuild src/main.js --bundle --outfile=src/bundle.js
 
-# Oppure manualmente
+# Avvia in modalità sviluppo
 cargo tauri dev
 ```
 
-L'app si aprirà come finestra nativa macOS.
-
 ---
 
-## Build per distribuzione
+## Build distribuzione
 
 ```bash
 cargo tauri build
 ```
 
-Genera un `.dmg` e un `.app` in `src-tauri/target/release/bundle/`.
+Genera `.app` e `.dmg` in `src-tauri/target/release/bundle/`.
 
-Per generare le icone dall'immagine della tua app:
-
+Per aggiornare le icone:
 ```bash
-cargo tauri icon path/to/icon.png   # genera tutte le dimensioni
+cargo tauri icon path/to/icon.png
 ```
 
 ---
@@ -67,19 +80,21 @@ cargo tauri icon path/to/icon.png   # genera tutte le dimensioni
 
 ```
 stemsplitter/
-├── src/                    # Frontend (HTML + CSS + JS)
-│   ├── index.html          # Struttura UI
-│   ├── style.css           # Tema dark stile DAW
-│   └── app.js              # Logica: Web Audio API, waveform, playback
+├── src/
+│   ├── index.html        # Struttura UI
+│   ├── style.css         # Tema dark stile DAW
+│   ├── app.js            # Logica: Web Audio API, waveform, playback
+│   ├── main.js           # Entry point per il bundle Tauri API
+│   └── bundle.js         # Bundle generato da esbuild (non committare)
 │
-├── src-tauri/              # Backend Rust (Tauri)
-│   ├── src/main.rs         # Comandi Tauri: pick file, run demucs, leggi audio
-│   ├── Cargo.toml          # Dipendenze Rust
-│   ├── tauri.conf.json     # Configurazione app (nome, finestra, permessi)
-│   └── icons/              # Icone app
+├── src-tauri/
+│   ├── src/main.rs       # Backend Rust: comandi Tauri, demucs-mlx, ffmpeg
+│   ├── Cargo.toml
+│   ├── tauri.conf.json
+│   └── icons/
 │
-├── package.json            # Dipendenze npm (opzionale)
-├── setup.sh                # Script di setup e avvio
+├── package.json
+├── setup.sh
 └── README.md
 ```
 
@@ -87,50 +102,36 @@ stemsplitter/
 
 ## Come funziona
 
-1. **Importa** un file audio (trascina o apri)
-2. **Scegli** la cartella di output (default: stessa del file)
-3. **Demucs** elabora il file e crea 4 stem in `output_dir/htdemucs/nome_file/`
-4. Le **waveform** vengono disegnate con Web Audio API + Canvas
-5. Controlla ogni traccia con:
-   - **M** — Mute (silenzia)
-   - **S** — Solo (ascolta solo questa)
-   - **Slider VOL** — Volume 0–150%
-   - **Click sulla waveform** — Seek alla posizione
+1. **Home** — trascina un file audio o aprilo con il file picker
+2. **Conferma cartella** — scegli dove salvare i file separati (default: `~/Downloads/StemSplitter/`)
+3. **Separazione** — demucs-mlx elabora il file con il modello `htdemucs` (ottimizzato Apple Silicon)
+4. **Conversione** — ffmpeg converte i wav in mp3 e rimuove i file originali
+5. **DAW** — ascolta e controlla le 4 tracce separate
 
----
+I brani già separati appaiono nella libreria home e possono essere riaperti senza rielaborarli.
 
-## Formato output
+### Configurazione persistente
 
-Demucs salva le stem come file `.wav` (o `.mp3` se specificato) in:
-
+Le preferenze (cartella libreria e colori tracce) vengono salvate in:
 ```
-output_dir/
-└── htdemucs/
-    └── nome_file/
-        ├── vocals.wav
-        ├── drums.wav
-        ├── bass.wav
-        └── other.wav
+~/Library/Application Support/StemSplitter/config.json
 ```
 
 ---
 
 ## Troubleshooting
 
-**demucs non trovato**
+**demucs-mlx non trovato**
+L'app cerca il binario in diversi path comuni (conda, homebrew, pip). Se non lo trova:
 ```bash
-# Controlla dove è installato
-which demucs
-pip show demucs
-
-# Se installato in un venv o con conda, avvia l'app dallo stesso ambiente
+which demucs-mlx
+# Se è in un environment conda, avvia l'app dallo stesso terminale con conda attivo
 ```
 
-**L'app non trova demucs**
-L'app cerca demucs in: PATH, `/usr/local/bin`, `/opt/homebrew/bin`, `~/Library/Python/3.11/bin`, `~/.local/bin`. Se è altrove, crea un symlink:
-```bash
-ln -s $(which demucs) /usr/local/bin/demucs
-```
+**Le waveform non appaiono**
+Aprire i DevTools con `Cmd+Option+I` forza il reflow del layout — comportamento noto, non causa problemi in uso normale.
 
-**Errore "no audio worklet"**
-Riavvia l'app — il contesto audio si inizializza al primo play.
+**bundle.js mancante**
+```bash
+node_modules/.bin/esbuild src/main.js --bundle --outfile=src/bundle.js
+```
