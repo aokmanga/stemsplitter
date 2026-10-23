@@ -70,4 +70,4 @@ ARFLAGS_aarch64_apple_darwin = None
 cargo:rerun-if-env-changed=ARFLAGS_aarch64-apple-darwin
 ARFLAGS_aarch64-apple-darwin = None
 cargo:rustc-link-lib=static=exception
-cargo:rustc-link-search=native=/Users/simone/Desktop/stemsplitter/src-tauri/target/debug/build/objc_exception-6fa25b06ddaaf0e6/out
+cargo:rustc-link-search=native=/Users/simone/Desktop/Stemsplitter/stemsplitter/src-tauri/target/debug/build/objc_exception-6fa25b06ddaaf0e6/out

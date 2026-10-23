@@ -12,6 +12,7 @@
     "esbuild": "^0.28.1"
   },
   "dependencies": {
-    "@tauri-apps/api": "^1.6.0"
+    "@tauri-apps/api": "^1.6.0",
+    "soundtouchjs": "^0.3.0"
   }
 }

@@ -1,5 +1,5 @@
-/Users/simone/Desktop/stemsplitter/src-tauri/target/debug/deps/cssparser_macros-3deb66bc489caae1.d: /Users/simone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cssparser-macros-0.6.1/lib.rs
+/Users/simone/Desktop/Stemsplitter/stemsplitter/src-tauri/target/debug/deps/cssparser_macros-3deb66bc489caae1.d: /Users/simone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cssparser-macros-0.6.1/lib.rs
 
-/Users/simone/Desktop/stemsplitter/src-tauri/target/debug/deps/libcssparser_macros-3deb66bc489caae1.dylib: /Users/simone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cssparser-macros-0.6.1/lib.rs
+/Users/simone/Desktop/Stemsplitter/stemsplitter/src-tauri/target/debug/deps/libcssparser_macros-3deb66bc489caae1.dylib: /Users/simone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cssparser-macros-0.6.1/lib.rs
 
 /Users/simone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cssparser-macros-0.6.1/lib.rs:

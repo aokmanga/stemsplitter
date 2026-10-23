@@ -71,4 +71,4 @@ ARFLAGS_aarch64_apple_darwin = None
 cargo:rerun-if-env-changed=ARFLAGS_aarch64-apple-darwin
 ARFLAGS_aarch64-apple-darwin = None
 cargo:rustc-link-lib=static=carbon_hotkey_binding.a
-cargo:rustc-link-search=native=/Users/simone/Desktop/stemsplitter/src-tauri/target/debug/build/tao-999f330bdc657fe1/out
+cargo:rustc-link-search=native=/Users/simone/Desktop/Stemsplitter/stemsplitter/src-tauri/target/debug/build/tao-999f330bdc657fe1/out

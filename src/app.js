@@ -422,7 +422,8 @@ function togglePlay() {
 function startPlayback() {
   const ctx = getAudioContext();
   if (ctx.state === 'suspended') ctx.resume();
-
+const rate = state.renderedRate || 1;
+state.playRate = rate;
   const offset = state.pauseOffset;
 
   // Crea source node per ogni traccia
@@ -435,17 +436,16 @@ function startPlayback() {
     }
 
     const source = ctx.createBufferSource();
-    source.buffer = track.buffer;
+    source.buffer = (rate !== 1 && track.stretched) || track.buffer;
     source.connect(track.gainNode);
-    source.start(0, offset);
-    source.playbackRate.value = state.playbackRate || 1;
+    source.start(0, offset / rate);
     track.sourceNode = source;
 
     // Applica mute/solo
     applyGain(key);
   });
 
-  state.startTime = ctx.currentTime - offset;
+  state.startTime = ctx.currentTime - offset / rate;
   state.isPlaying = true;
   btnPlay.textContent = '⏸';
   btnPlay.classList.add('playing');
@@ -456,7 +456,7 @@ function startPlayback() {
 
 function pausePlayback() {
   const ctx = getAudioContext();
-  state.pauseOffset = ctx.currentTime - state.startTime;
+  state.pauseOffset = (ctx.currentTime - state.startTime) * (state.playRate || 1);
 
   stopAllSources();
   state.isPlaying = false;
@@ -496,7 +496,7 @@ function tickPlayhead() {
   if (!state.isPlaying) return;
 
   const ctx = getAudioContext();
-  const elapsed = ctx.currentTime - state.startTime;
+  const elapsed = (ctx.currentTime - state.startTime) * (state.playRate || 1);
 
   if (elapsed >= state.duration) {
     stopPlayback();
@@ -745,6 +745,7 @@ function resetToImport() {
   state.stemPaths = null;
   state.currentFile = null;
   state.pauseOffset = 0;
+  state.renderedRate = 1;
   state.duration = 0;
   tracksContainer.innerHTML = '';
   showSection('home');
@@ -832,11 +833,21 @@ function setMasterVolume(val) {
   $('master-vol-label').textContent = `${Math.round(gain * 100)}%`;
 }
 
+let spdTimer;
 function setMasterSpeed(val) {
   state.playbackRate = parseFloat(val);
-  $('master-spd-label').textContent = `${parseFloat(val).toFixed(2)}x`;
+  $('master-spd-label').textContent = `${state.playbackRate.toFixed(2)}x`;
+  clearTimeout(spdTimer);
+  spdTimer = setTimeout(applySpeed, 400);
+}
+function applySpeed() {
+  const r = state.playbackRate;
+  const wasPlaying = state.isPlaying;
+  if (wasPlaying) pausePlayback();
   Object.values(state.tracks).forEach(t => {
-    if (t.sourceNode) t.sourceNode.playbackRate.value = state.playbackRate;
+    if (t.buffer) t.stretched = r === 1 ? null : window._stretch(t.buffer, r, getAudioContext());
   });
+  state.renderedRate = r;
+  if (wasPlaying) startPlayback();
 }
 init();
