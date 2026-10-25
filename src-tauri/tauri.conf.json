@@ -28,12 +28,10 @@
         "readDir": true,
         "exists": true,
         "scope": [
-          "$HOME/**",
-          "$DESKTOP/**",
-          "$DOCUMENT/**",
           "$DOWNLOAD/**",
-          "/tmp/**",
-          "/opt/**"
+          "$DOCUMENT/**",
+          "$DESKTOP/**",
+          "$AUDIO/**"
         ]
       }
     },
@@ -57,7 +55,7 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; connect-src ipc: http://ipc.localhost"
     },
     "updater": {
       "active": false

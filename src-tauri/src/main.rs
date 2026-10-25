@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +18,8 @@ struct StemPaths {
 struct SplitProgress {
     status: String,
     message: String,
+    #[serde(default)]
+    percent: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,9 +72,42 @@ fn save_config(library_path: String) -> Result<(), String> {
 
 // ── Sessions ──────────────────────────────────────────────────────
 
+/// Cerca un eseguibile (ffmpeg, ffprobe...) nei percorsi comuni di macOS,
+/// poi nel PATH. Le app grafiche non ereditano il PATH del terminale,
+/// quindi i percorsi fissi vengono controllati per primi.
+fn find_binary(name: &str) -> Option<String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let dirs = [
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/opt/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/opt/homebrew/Caskroom/miniconda/base/bin".to_string(),
+        format!("{}/miniconda3/bin", home),
+        format!("{}/miniforge3/bin", home),
+        format!("{}/.local/bin", home),
+    ];
+    for d in dirs.iter() {
+        let p = Path::new(d).join(name);
+        if p.exists() { return Some(p.to_string_lossy().to_string()); }
+    }
+    let lookup = format!("command -v {}", name);
+    if let Ok(out) = Command::new("sh").args(&["-c", lookup.as_str()]).output() {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() { return Some(p); }
+        }
+    }
+    None
+}
+
 /// Legge la durata in secondi di un file audio tramite ffprobe
 fn get_duration(path: &Path) -> f64 {
-    let out = Command::new("/opt/homebrew/bin/ffprobe")
+    let ffprobe = match find_binary("ffprobe") {
+        Some(p) => p,
+        None => return 0.0,
+    };
+    let out = Command::new(ffprobe)
         .args(&["-v", "quiet", "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 path.to_str().unwrap_or("")])
@@ -84,28 +120,35 @@ fn get_duration(path: &Path) -> f64 {
     0.0
 }
 
-/// Legge la data di modifica di un file come stringa ISO 8601
+/// Converte secondi Unix in data UTC "YYYY-MM-DDTHH:MM:SSZ" (ISO 8601).
+/// Algoritmo "civil from days" (calendario gregoriano corretto, anni bisestili inclusi).
+fn iso_from_secs(secs: u64) -> String {
+    let days = (secs / 86400) as i64;
+    let rem = secs % 86400;
+    let (h, m, sec) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if mo <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, m, sec)
+}
+
+/// Data di modifica di un file in formato ISO 8601 UTC (la UI la mostra in ora locale)
 fn get_mtime_iso(path: &Path) -> String {
     if let Ok(meta) = std::fs::metadata(path) {
         if let Ok(mtime) = meta.modified() {
             if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
-                let secs = dur.as_secs();
-                // Formatta come YYYY-MM-DD HH:MM — conversione manuale senza chrono
-                let s = secs as i64;
-                let days = s / 86400;
-                let time = s % 86400;
-                let h = time / 3600;
-                let m = (time % 3600) / 60;
-                // Data approssimativa (abbastanza per mostrare in UI)
-                let year = 1970 + days / 365;
-                let day_of_year = days % 365;
-                let month = day_of_year / 30 + 1;
-                let day = day_of_year % 30 + 1;
-                return format!("{:04}-{:02}-{:02} {:02}:{:02}", year, month.min(12), day.min(31), h, m);
+                return iso_from_secs(dur.as_secs());
             }
         }
     }
-    String::from("—")
+    String::new()
 }
 
 #[tauri::command]
@@ -232,67 +275,153 @@ fn check_demucs() -> Result<String, String> {
     }
 }
 
+/// Cerca una percentuale tipo "45%" (barra tqdm) in un pezzo di testo
+fn parse_percent(text: &str) -> Option<f32> {
+    let idx = text.rfind('%')?;
+    let before = &text[..idx];
+    let digits: String = before
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let v: f32 = digits.parse().ok()?;
+    if (0.0..=100.0).contains(&v) { Some(v) } else { None }
+}
+
+fn emit_progress(window: &tauri::Window, status: &str, message: &str, percent: Option<f32>) {
+    window.emit("demucs-progress", SplitProgress {
+        status: status.to_string(),
+        message: message.to_string(),
+        percent,
+    }).ok();
+}
+
 #[tauri::command]
 async fn run_demucs(
     input_path: String,
     output_dir: String,
-    model: String,
     window: tauri::Window,
 ) -> Result<StemPaths, String> {
-    window.emit("demucs-progress", SplitProgress {
-        status: "starting".to_string(),
-        message: "Avvio separazione tracce...".to_string(),
-    }).ok();
+    // Il lavoro pesante gira su un thread dedicato: non blocca l'app
+    tauri::async_runtime::spawn_blocking(move || run_demucs_blocking(input_path, output_dir, window))
+        .await
+        .map_err(|e| format!("Errore interno: {}", e))?
+}
+
+fn run_demucs_blocking(
+    input_path: String,
+    output_dir: String,
+    window: tauri::Window,
+) -> Result<StemPaths, String> {
+    emit_progress(&window, "starting", "Avvio separazione tracce...", None);
 
     let input = Path::new(&input_path);
     let filename_stem = input.file_stem().and_then(|s| s.to_str())
         .ok_or("Nome file non valido")?.to_string();
 
-    let demucs_path = find_demucs_path()
-        .ok_or("Demucs non trovato.")?;
+    let demucs_path = find_demucs_path().ok_or("Demucs non trovato.")?;
+    // Controllo ffmpeg PRIMA di separare: evita minuti di lavoro inutile
+    let ffmpeg_path = find_binary("ffmpeg")
+        .ok_or("ffmpeg non trovato. Installalo con: brew install ffmpeg")?;
 
-    // Crea la cartella di output se non esiste
     std::fs::create_dir_all(&output_dir)
         .map_err(|e| format!("Impossibile creare cartella output: {}", e))?;
 
-    window.emit("demucs-progress", SplitProgress {
-        status: "running".to_string(),
-        message: "Separazione in corso... (qualche minuto)".to_string(),
-    }).ok();
+    emit_progress(&window, "running", "Separazione in corso... (qualche minuto)", None);
 
-    let output = Command::new(&demucs_path)
+    let mut child = Command::new(&demucs_path)
         .args(&["--prefetch-tracks", "0", "-o", &output_dir, &input_path])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Errore avvio demucs-mlx: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(format!("Demucs fallito:\nSTDERR: {}\nSTDOUT: {}", stderr, stdout));
+    // stdout letto in un thread a parte (evita blocchi se il buffer si riempie)
+    let stdout_pipe = child.stdout.take();
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut o) = stdout_pipe {
+            let mut bytes = Vec::new();
+            o.read_to_end(&mut bytes).ok();
+            buf = String::from_utf8_lossy(&bytes).to_string();
+        }
+        buf
+    });
+
+    // stderr letto a pezzi: da qui si ricava la percentuale reale
+    let mut stderr_all = String::new();
+    let mut last_percent: f32 = -1.0;
+    if let Some(mut e) = child.stderr.take() {
+        let mut chunk = [0u8; 4096];
+        let mut carry = String::new();
+        loop {
+            match e.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let text = String::from_utf8_lossy(&chunk[..n]).to_string();
+                    stderr_all.push_str(&text);
+                    if stderr_all.len() > 8000 {
+                        let mut cut = stderr_all.len() - 6000;
+                        while !stderr_all.is_char_boundary(cut) { cut += 1; }
+                        stderr_all = stderr_all[cut..].to_string();
+                    }
+                    let joined = format!("{}{}", carry, text);
+                    if let Some(p) = parse_percent(&joined) {
+                        if (p - last_percent).abs() >= 1.0 {
+                            last_percent = p;
+                            emit_progress(&window, "running",
+                                &format!("Separazione in corso... {:.0}%", p), Some(p));
+                        }
+                    }
+                    let mut start = joined.len().saturating_sub(8);
+                    while !joined.is_char_boundary(start) { start += 1; }
+                    carry = joined[start..].to_string();
+                }
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("Errore attesa demucs-mlx: {}", e))?;
+    let stdout_all = stdout_thread.join().unwrap_or_default();
+
+    if !status.success() {
+        return Err(format!("Demucs fallito:\nSTDERR: {}\nSTDOUT: {}", stderr_all, stdout_all));
     }
 
     let stem_dir = PathBuf::from(&output_dir).join(&filename_stem);
 
-    window.emit("demucs-progress", SplitProgress {
-        status: "converting".to_string(),
-        message: "Conversione in MP3...".to_string(),
-    }).ok();
+    emit_progress(&window, "converting", "Conversione in MP3...", Some(100.0));
 
+    let mut failed: Vec<String> = Vec::new();
     for stem_name in &["vocals", "drums", "bass", "other"] {
         let wav = stem_dir.join(format!("{}.wav", stem_name));
         let mp3 = stem_dir.join(format!("{}.mp3", stem_name));
         if wav.exists() {
-            Command::new("/opt/homebrew/bin/ffmpeg")
-                .args(&["-i", wav.to_str().unwrap(), "-q:a", "2", mp3.to_str().unwrap(), "-y"])
-                .output().ok();
-            std::fs::remove_file(&wav).ok();
+            let ok = Command::new(&ffmpeg_path)
+                .arg("-y").arg("-i").arg(&wav)
+                .arg("-q:a").arg("2")
+                .arg(&mp3)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            // Il wav si cancella SOLO se l'mp3 è stato creato davvero
+            if ok && mp3.exists() {
+                std::fs::remove_file(&wav).ok();
+            } else {
+                failed.push(stem_name.to_string());
+            }
         }
     }
 
-    window.emit("demucs-progress", SplitProgress {
-        status: "done".to_string(),
-        message: "Separazione completata!".to_string(),
-    }).ok();
+    let done_msg = if failed.is_empty() {
+        "Separazione completata!".to_string()
+    } else {
+        format!("Completata, ma conversione MP3 fallita per: {} (file WAV conservati)", failed.join(", "))
+    };
+    emit_progress(&window, "done", &done_msg, Some(100.0));
 
     let find_stem = |name: &str| -> String {
         for ext in &["mp3", "wav", "flac"] {
@@ -321,7 +450,8 @@ fn read_audio_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 fn get_audio_info(path: String) -> Result<serde_json::Value, String> {
-    let output = Command::new("ffprobe")
+    let ffprobe = find_binary("ffprobe").ok_or("ffprobe non trovato")?;
+    let output = Command::new(ffprobe)
         .args(&["-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", &path])
         .output().map_err(|e| format!("ffprobe non trovato: {}", e))?;
     if !output.status.success() {

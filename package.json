@@ -4,8 +4,8 @@
   "description": "Stem splitter DAW app con Demucs",
   "scripts": {
     "tauri": "tauri",
-    "dev": "cargo tauri dev",
-    "build": "cargo tauri build"
+    "dev": "tauri dev",
+    "build": "tauri build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.6.0",

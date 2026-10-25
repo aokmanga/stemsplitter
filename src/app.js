@@ -105,11 +105,14 @@ async function loadSessions() {
       item.innerHTML = `
         <div class="session-icon">🎵</div>
         <div class="session-info">
-          <div class="session-name">${session.name}</div>
-          <div class="session-meta">${dur} &nbsp;·&nbsp; ${session.date}</div>
+          <div class="session-name"></div>
+          <div class="session-meta"></div>
         </div>
         <button class="btn-secondary small session-open-btn">Apri →</button>
       `;
+      // textContent (non innerHTML): il nome della cartella non viene mai interpretato come HTML
+      item.querySelector('.session-name').textContent = session.name;
+      item.querySelector('.session-meta').textContent = `${dur} \u00A0·\u00A0 ${formatDate(session.date)}`;
       item.addEventListener('click', () => openSession(session));
       list.appendChild(item);
     });
@@ -122,9 +125,14 @@ async function loadSessions() {
 async function openSession(session) {
   state.currentFile = session.path;
   state.stemPaths = session.stems;
-  await loadStems(session.stems);
-  showSection('daw');
-  setupTransportInfo();
+  try {
+    await loadStems(session.stems);
+    showSection('daw');
+    setupTransportInfo();
+  } catch (err) {
+    alert(`Impossibile aprire il brano:\n${err.message || err}`);
+    resetToImport();
+  }
 }
 
 async function checkDemucs() {
@@ -218,12 +226,17 @@ async function setupNativeEvents() {
 
 function listenDemucsProgress() {
   listen('demucs-progress', ({ payload }) => {
-    const { status, message } = payload;
+    const { status, message, percent } = payload;
     $('processing-title').textContent = message;
 
     if (status === 'starting') {
       animateProgressBar();
-    } else if (status === 'done') {
+    } else if (status === 'running' && typeof percent === 'number') {
+      // Percentuale reale letta da demucs: sostituisce quella simulata
+      stopProgressTimer();
+      progressBar.style.width = `${percent}%`;
+    } else if (status === 'converting' || status === 'done') {
+      stopProgressTimer();
       progressBar.style.width = '100%';
     }
   });
@@ -255,7 +268,6 @@ async function startDemucs() {
     const stemPaths = await invoke('run_demucs', {
       inputPath: state.currentFile,
       outputDir: state.outputDir,
-      model: 'htdemucs',
     });
 
     state.stemPaths = stemPaths;
@@ -266,8 +278,9 @@ async function startDemucs() {
     loadSessions();
 
   } catch (err) {
-    alert(`Errore durante la separazione:\n${err}`);
-    showSection('import');
+    stopProgressTimer();
+    alert(`Errore durante la separazione:\n${err.message || err}`);
+    resetToImport();
   }
 }
 
@@ -282,6 +295,8 @@ function getAudioContext() {
 async function loadStems(paths) {
   // Crea i nodi gain per ogni traccia
   const ctx = getAudioContext();
+  state.tracks = {};
+  if (state.masterGain) { try { state.masterGain.disconnect(); } catch (_) {} }
   state.masterGain = ctx.createGain();
   state.masterGain.gain.value = parseFloat($('master-volume')?.value || 1);
   state.masterGain.connect(ctx.destination);
@@ -293,7 +308,10 @@ async function loadStems(paths) {
   const loadPromises = TRACK_CONFIG.map(cfg => loadStem(cfg.key, paths[cfg.key]));
   await Promise.all(loadPromises);
 
-  state.duration = Math.max(...Object.values(state.tracks).map(t => t.buffer?.duration || 0));
+  // Solo gli stem caricati davvero contano (uno stem mancante non rompe il resto)
+  const loaded = Object.values(state.tracks).filter(t => t.buffer);
+  if (loaded.length === 0) throw new Error('Nessuna traccia audio caricabile in questa cartella.');
+  state.duration = Math.max(...loaded.map(t => t.buffer.duration));
   updateTimeDisplay(0);
 }
 
@@ -329,8 +347,18 @@ async function loadStem(key, filePath) {
 
   } catch(err) {
     console.error(`Errore caricamento stem ${key}:`, err);
-    setTrackLoading(key, false, `Errore: ${err}`);
+    setTrackLoading(key, false, 'Traccia non disponibile');
+    markTrackMissing(key);
   }
+}
+
+// Stem assente o illeggibile: la riga resta visibile ma disattivata
+function markTrackMissing(key) {
+  const row = document.querySelector(`[data-track="${key}"]`);
+  if (!row) return;
+  row.classList.add('missing');
+  row.style.opacity = '0.5';
+  row.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
 }
 
 // ── Waveform Drawing ──────────────────────────────────────────────
@@ -422,8 +450,11 @@ function togglePlay() {
 function startPlayback() {
   const ctx = getAudioContext();
   if (ctx.state === 'suspended') ctx.resume();
-const rate = state.renderedRate || 1;
-state.playRate = rate;
+  let rate = state.renderedRate || 1;
+  // Se manca anche un solo buffer "stirato" si riparte a 1x: evita posizione sbagliata
+  const ready = Object.values(state.tracks).filter(t => t.buffer);
+  if (rate !== 1 && !ready.every(t => t.stretched)) rate = 1;
+  state.playRate = rate;
   const offset = state.pauseOffset;
 
   // Crea source node per ogni traccia
@@ -436,7 +467,7 @@ state.playRate = rate;
     }
 
     const source = ctx.createBufferSource();
-    source.buffer = (rate !== 1 && track.stretched) || track.buffer;
+    source.buffer = rate !== 1 ? track.stretched : track.buffer;
     source.connect(track.gainNode);
     source.start(0, offset / rate);
     track.sourceNode = source;
@@ -688,6 +719,7 @@ function openColorPicker(key) {
 }
 
 function applyTrackColor(key, color) {
+  if (!state.tracks[key]?.buffer) return;
   if (!state.trackColors) state.trackColors = {};
   state.trackColors[key] = color;
   document.querySelector(`[data-colorpick="${key}"]`).style.background = color;
@@ -703,7 +735,11 @@ function setTrackLoading(key, loading, errorMsg) {
     el.innerHTML = `<div class="mini-spinner"></div><span>Caricamento…</span>`;
   } else if (errorMsg) {
     el.style.display = 'flex';
-    el.innerHTML = `<span style="color:var(--red);font-size:10px">${errorMsg}</span>`;
+    el.textContent = '';
+    const span = document.createElement('span');
+    span.style.cssText = 'color:var(--red);font-size:10px';
+    span.textContent = errorMsg;
+    el.appendChild(span);
   } else {
     el.style.display = 'none';
   }
@@ -746,6 +782,14 @@ function resetToImport() {
   state.currentFile = null;
   state.pauseOffset = 0;
   state.renderedRate = 1;
+  state.playRate = 1;
+  // Velocità: slider, etichetta e valore tornano a 1x (come l'audio del prossimo brano)
+  clearTimeout(spdTimer);
+  state.playbackRate = 1;
+  const spd = $('master-speed');
+  if (spd) spd.value = 1;
+  const spdLabel = $('master-spd-label');
+  if (spdLabel) spdLabel.textContent = '1.00x';
   state.duration = 0;
   tracksContainer.innerHTML = '';
   showSection('home');
@@ -754,6 +798,10 @@ function resetToImport() {
 
 // ── Progress Bar animata ──────────────────────────────────────────
 let progressInterval = null;
+
+function stopProgressTimer() {
+  if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+}
 
 function animateProgressBar() {
   progressBar.style.width = '0%';
@@ -776,6 +824,16 @@ function formatTime(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+// Data ISO 8601 (UTC, dal backend) -> ora locale leggibile
+function formatDate(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d.getTime())) return '—';
+  return d.toLocaleString('it-IT', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
 }
 
 function base64ToArrayBuffer(base64) {

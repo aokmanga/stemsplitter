@@ -14,7 +14,7 @@ Costruita con **Tauri 1.x** (Rust + HTML/CSS/JS nativo) — nessun Electron.
 - **Volume individuale** per traccia (0–150%)
 - **Volume master** e **velocità di riproduzione** (0.5x–2x)
 - **Reset** rapido di tutti i controlli al valore di default
-- **Colore waveform personalizzabile** per traccia (persistente)
+- **Colore waveform personalizzabile** per traccia (valido solo finché l'app è aperta)
 - **Libreria brani** — lista dei brani già separati con durata e data
 - **Cartella libreria configurabile** e persistente tra sessioni
 - Output in **MP3** (conversione automatica via ffmpeg dopo la separazione)
@@ -28,19 +28,16 @@ Costruita con **Tauri 1.x** (Rust + HTML/CSS/JS nativo) — nessun Electron.
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
-# 2. Tauri CLI
-cargo install tauri-cli --version "^1.6"
-
-# 3. demucs-mlx (versione ottimizzata per Apple Silicon)
+# 2. demucs-mlx (versione ottimizzata per Apple Silicon)
 pip install demucs-mlx
 
-# 4. ffmpeg
+# 3. ffmpeg
 brew install ffmpeg
 
-# 5. Node.js (per il bundle delle API Tauri)
+# 4. Node.js (per il bundle delle API Tauri e la CLI Tauri)
 # https://nodejs.org
 
-# 6. Strumenti Xcode
+# 5. Strumenti Xcode
 xcode-select --install
 ```
 
@@ -56,7 +53,7 @@ npm install
 node_modules/.bin/esbuild src/main.js --bundle --outfile=src/bundle.js
 
 # Avvia in modalità sviluppo
-cargo tauri dev
+npx tauri dev
 ```
 
 ---
@@ -64,14 +61,14 @@ cargo tauri dev
 ## Build distribuzione
 
 ```bash
-cargo tauri build
+npx tauri build
 ```
 
 Genera `.app` e `.dmg` in `src-tauri/target/release/bundle/`.
 
 Per aggiornare le icone:
 ```bash
-cargo tauri icon path/to/icon.png
+npx tauri icon path/to/icon.png
 ```
 
 ---
@@ -85,7 +82,7 @@ stemsplitter/
 │   ├── style.css         # Tema dark stile DAW
 │   ├── app.js            # Logica: Web Audio API, waveform, playback
 │   ├── main.js           # Entry point per il bundle Tauri API
-│   └── bundle.js         # Bundle generato da esbuild (non committare)
+│   └── bundle.js         # Bundle generato da esbuild (committato: serve al build)
 │
 ├── src-tauri/
 │   ├── src/main.rs       # Backend Rust: comandi Tauri, demucs-mlx, ffmpeg
@@ -112,7 +109,7 @@ I brani già separati appaiono nella libreria home e possono essere riaperti sen
 
 ### Configurazione persistente
 
-Le preferenze (cartella libreria e colori tracce) vengono salvate in:
+La cartella libreria viene salvata in:
 ```
 ~/Library/Application Support/StemSplitter/config.json
 ```
