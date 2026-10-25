@@ -30,6 +30,10 @@ let state = {
   stemPaths: null,
   currentFile: null,
   outputDir: null,
+  pitch: 0,
+  renderedPitch: 0,
+  key: null,
+  loop: { a: null, b: null, on: false },
 };
 
 // ── Elementi DOM ──────────────────────────────────────────────────
@@ -153,6 +157,12 @@ function setupEventListeners() {
   $('btn-reset').addEventListener('click', resetTracks);
   $('master-volume').addEventListener('input', e => setMasterVolume(e.target.value));
   $('master-speed').addEventListener('input', e => setMasterSpeed(e.target.value));
+  $('master-pitch').addEventListener('input', e => setPitch(e.target.value));
+  $('btn-loop-a').addEventListener('click', () => setLoopPoint('a'));
+  $('btn-loop-b').addEventListener('click', () => setLoopPoint('b'));
+  $('btn-loop-toggle').addEventListener('click', toggleLoop);
+  $('btn-loop-clear').addEventListener('click', clearLoop);
+  initLoopUI();
   btnOpenFile.addEventListener('click', openFile);
   btnPlay.addEventListener('click', togglePlay);
   btnStop.addEventListener('click', stopPlayback);
@@ -451,11 +461,15 @@ function startPlayback() {
   const ctx = getAudioContext();
   if (ctx.state === 'suspended') ctx.resume();
   let rate = state.renderedRate || 1;
-  // Se manca anche un solo buffer "stirato" si riparte a 1x: evita posizione sbagliata
+  const processed = rate !== 1 || (state.renderedPitch || 0) !== 0;
   const ready = Object.values(state.tracks).filter(t => t.buffer);
-  if (rate !== 1 && !ready.every(t => t.stretched)) rate = 1;
+  const useStretched = processed && ready.every(t => t.stretched);
+  if (!useStretched) rate = 1;
   state.playRate = rate;
-  const offset = state.pauseOffset;
+  const lp = state.loop;
+  const looping = lp.on && lp.a != null && lp.b != null && lp.b > lp.a;
+  let offset = state.pauseOffset;
+  if (looping && offset >= lp.b) offset = lp.a;
 
   // Crea source node per ogni traccia
   Object.entries(state.tracks).forEach(([key, track]) => {
@@ -467,7 +481,8 @@ function startPlayback() {
     }
 
     const source = ctx.createBufferSource();
-    source.buffer = rate !== 1 ? track.stretched : track.buffer;
+    source.buffer = useStretched ? track.stretched : track.buffer;
+    if (looping) { source.loop = true; source.loopStart = lp.a / rate; source.loopEnd = lp.b / rate; }
     source.connect(track.gainNode);
     source.start(0, offset / rate);
     track.sourceNode = source;
@@ -487,7 +502,7 @@ function startPlayback() {
 
 function pausePlayback() {
   const ctx = getAudioContext();
-  state.pauseOffset = (ctx.currentTime - state.startTime) * (state.playRate || 1);
+state.pauseOffset = currentPos();
 
   stopAllSources();
   state.isPlaying = false;
@@ -527,7 +542,7 @@ function tickPlayhead() {
   if (!state.isPlaying) return;
 
   const ctx = getAudioContext();
-  const elapsed = (ctx.currentTime - state.startTime) * (state.playRate || 1);
+const elapsed = currentPos();
 
   if (elapsed >= state.duration) {
     stopPlayback();
@@ -751,6 +766,8 @@ function setupTransportInfo() {
   transportDuration.textContent = formatTime(state.duration);
   timeTotal.textContent = formatTime(state.duration);
   timeCurrent.textContent = '0:00';
+  state.key = null; updateKeyLabel();
+  setTimeout(() => { state.key = detectKey(); updateKeyLabel(); }, 100);
 }
 
 // ── Sezioni ───────────────────────────────────────────────────────
@@ -783,6 +800,11 @@ function resetToImport() {
   state.pauseOffset = 0;
   state.renderedRate = 1;
   state.playRate = 1;
+  state.pitch = 0; state.renderedPitch = 0;
+  const pit = $('master-pitch'); if (pit) pit.value = 0;
+  $('master-pitch-label').textContent = '0';
+  state.key = null; updateKeyLabel();
+  clearLoop();
   // Velocità: slider, etichetta e valore tornano a 1x (come l'audio del prossimo brano)
   clearTimeout(spdTimer);
   cancelSpeedJobs();
@@ -908,36 +930,202 @@ function setMasterSpeed(val) {
 }
 async function applySpeed() {
   const r = state.playbackRate;
+  const p = state.pitch;
   const label = $('master-spd-label');
   const fmt = `${r.toFixed(2)}x`;
-  // Annulla calcoli precedenti ancora in corso
   spdJobs.forEach(j => j.cancel());
   spdJobs = [];
   const token = ++spdToken;
   if (state.isPlaying) { spdResume = true; pausePlayback(); }
 
-  if (r === 1) {
+  if (r === 1 && p === 0) {
     Object.values(state.tracks).forEach(t => { t.stretched = null; });
     state.renderedRate = 1;
+    state.renderedPitch = 0;
   } else {
     label.textContent = `${fmt} ...`;
     const ctx = getAudioContext();
     const entries = Object.values(state.tracks).filter(t => t.buffer);
-    const jobs = entries.map(t => window._stretchAsync(t.buffer, r, ctx));
+    const jobs = entries.map(t => window._stretchAsync(t.buffer, r, ctx, p));
     spdJobs = jobs;
     try {
       const results = await Promise.all(jobs.map(j => j.promise));
-      if (token !== spdToken) return; // superato da una richiesta più recente
+      if (token !== spdToken) return;
       entries.forEach((t, i) => { t.stretched = results[i]; });
       state.renderedRate = r;
+      state.renderedPitch = p;
     } catch (err) {
       if (token !== spdToken) return;
-      console.error('Errore velocità:', err);
+      console.error('Errore velocità/tonalità:', err);
       state.renderedRate = 1;
+      state.renderedPitch = 0;
     }
     spdJobs = [];
     label.textContent = fmt;
   }
   if (spdResume) { spdResume = false; startPlayback(); }
+}
+// ── Tonalità ──────────────────────────────────────────────────────
+function setPitch(val) {
+  state.pitch = parseInt(val, 10);
+  $('master-pitch-label').textContent = state.pitch > 0 ? `+${state.pitch}` : `${state.pitch}`;
+  updateKeyLabel();
+  clearTimeout(spdTimer);
+  spdTimer = setTimeout(applySpeed, 400);
+}
+
+// ── Riconoscimento tonalità (stima) ───────────────────────────────
+const NOTE_IT = ['Do','Do#','Re','Re#','Mi','Fa','Fa#','Sol','Sol#','La','La#','Si'];
+const KS_MAJ = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+const KS_MIN = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+const keyName = (root, minor) => `${NOTE_IT[root]} ${minor ? 'min' : 'magg'}`;
+
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang), h = len / 2;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < h; k++) {
+        const ur = re[i + k], ui = im[i + k];
+        const vr = re[i + k + h] * cr - im[i + k + h] * ci;
+        const vi = re[i + k + h] * ci + im[i + k + h] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi;
+        re[i + k + h] = ur - vr; im[i + k + h] = ui - vi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+
+function detectKey() {
+  const bufs = ['vocals', 'bass', 'other'].map(k => state.tracks[k]?.buffer).filter(Boolean);
+  if (!bufs.length) return null;
+  const sr = bufs[0].sampleRate, N = 8192, hop = Math.floor(sr * 0.5);
+  const chans = bufs.map(b => b.getChannelData(0));
+  const total = Math.min(...chans.map(c => c.length));
+  const win = new Float32Array(N).map((_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)));
+  const kLow = Math.ceil(80 * N / sr), kHigh = Math.floor(2000 * N / sr);
+  const pcOf = [];
+  for (let k = kLow; k <= kHigh; k++) {
+    pcOf[k] = (((Math.round(12 * Math.log2(k * sr / N / 440)) + 69) % 12) + 12) % 12;
+  }
+  const chroma = new Array(12).fill(0);
+  const re = new Float32Array(N), im = new Float32Array(N);
+  for (let s = 0; s + N <= total; s += hop) {
+    for (let i = 0; i < N; i++) {
+      let v = 0;
+      for (const c of chans) v += c[s + i];
+      re[i] = v * win[i]; im[i] = 0;
+    }
+    fft(re, im);
+    for (let k = kLow; k <= kHigh; k++) chroma[pcOf[k]] += Math.sqrt(Math.hypot(re[k], im[k]));
+  }
+  const corr = (a, b) => {
+    const ma = a.reduce((x, y) => x + y) / 12, mb = b.reduce((x, y) => x + y) / 12;
+    let n = 0, da = 0, db = 0;
+    for (let i = 0; i < 12; i++) { n += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
+    return n / Math.sqrt(da * db || 1);
+  };
+  let best = null;
+  for (let r = 0; r < 12; r++) {
+    const rot = chroma.map((_, i) => chroma[(r + i) % 12]);
+    for (const minor of [false, true]) {
+      const c = corr(rot, minor ? KS_MIN : KS_MAJ);
+      if (!best || c > best.c) best = { root: r, minor, c };
+    }
+  }
+  return best;
+}
+
+function updateKeyLabel() {
+  const el = $('key-label');
+  if (!el) return;
+  const k = state.key;
+  if (!k) { el.textContent = ''; return; }
+  let t = `Tonalità: ${keyName(k.root, k.minor)}`;
+  if (state.pitch) t += ` → ${keyName((k.root + state.pitch + 120) % 12, k.minor)}`;
+  el.textContent = t;
+}
+
+// ── Loop A>B ──────────────────────────────────────────────────────
+function currentPos() {
+  const ctx = getAudioContext();
+  let e = (ctx.currentTime - state.startTime) * (state.playRate || 1);
+  const lp = state.loop;
+  if (lp.on && lp.a != null && lp.b != null && lp.b > lp.a && e >= lp.b) {
+    e = lp.a + ((e - lp.a) % (lp.b - lp.a));
+  }
+  return e;
+}
+
+function initLoopUI() {
+  const reg = document.createElement('div');
+  reg.id = 'loop-region';
+  reg.style.cssText = 'position:absolute;top:0;bottom:0;left:0;width:0;background:rgba(79,142,247,.3);pointer-events:none;display:none';
+  if (getComputedStyle(timeline).position === 'static') timeline.style.position = 'relative';
+  timeline.appendChild(reg);
+}
+
+function updateLoopUI() {
+  const { a, b, on } = state.loop;
+  $('btn-loop-a').title = a != null ? `Punto A: ${formatTime(a)}` : 'Imposta punto A';
+  $('btn-loop-b').title = b != null ? `Punto B: ${formatTime(b)}` : 'Imposta punto B';
+  $('btn-loop-a').style.opacity = a != null ? 1 : 0.6;
+  $('btn-loop-b').style.opacity = b != null ? 1 : 0.6;
+  $('btn-loop-toggle').style.opacity = on ? 1 : 0.5;
+  const reg = $('loop-region');
+  if (!reg) return;
+  if (a != null && b != null && state.duration) {
+    reg.style.display = 'block';
+    reg.style.left = `${(a / state.duration) * 100}%`;
+    reg.style.width = `${((b - a) / state.duration) * 100}%`;
+    reg.style.opacity = on ? 1 : 0.4;
+  } else {
+    reg.style.display = 'none';
+  }
+}
+
+function refreshPlayback() {
+  if (!state.isPlaying) return;
+  state.pauseOffset = currentPos();
+  if (state.animFrame) cancelAnimationFrame(state.animFrame);
+  stopAllSources();
+  startPlayback();
+}
+
+function setLoopPoint(which) {
+  const pos = state.isPlaying ? currentPos() : state.pauseOffset;
+  const lp = state.loop;
+  lp[which] = pos;
+  if (lp.a != null && lp.b != null) {
+    if (lp.a === lp.b) { lp[which] = null; }
+    else {
+      if (lp.a > lp.b) [lp.a, lp.b] = [lp.b, lp.a];
+      lp.on = true;
+    }
+  }
+  updateLoopUI();
+  refreshPlayback();
+}
+
+function toggleLoop() {
+  const lp = state.loop;
+  if (lp.a == null || lp.b == null) return;
+  lp.on = !lp.on;
+  updateLoopUI();
+  refreshPlayback();
+}
+
+function clearLoop() {
+  state.loop = { a: null, b: null, on: false };
+  updateLoopUI();
+  refreshPlayback();
 }
 init();

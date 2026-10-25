@@ -2667,7 +2667,7 @@ Note that this is not an issue if running this frontend on a browser instead of 
     }
     return out;
   };
-  window._stretchAsync = (buf, tempo, ctx) => {
+  window._stretchAsync = (buf, tempo, ctx, pitch = 0) => {
     const w = new Worker("worker-bundle.js");
     const L = buf.getChannelData(0).slice();
     const R = (buf.numberOfChannels > 1 ? buf.getChannelData(1) : buf.getChannelData(0)).slice();
@@ -2684,7 +2684,7 @@ Note that this is not an issue if running this frontend on a browser instead of 
         reject(err);
       };
     });
-    w.postMessage({ L, R, tempo }, [L.buffer, R.buffer]);
+    w.postMessage({ L, R, tempo, pitch }, [L.buffer, R.buffer]);
     return { promise, cancel: () => w.terminate() };
   };
 })();

@@ -636,9 +636,10 @@
     }
   };
   self.onmessage = (e) => {
-    const { L, R, tempo } = e.data;
+    const { L, R, tempo, pitch } = e.data;
     const st = new SoundTouch();
     st.tempo = tempo;
+    st.pitchSemitones = pitch || 0;
     const f = new SimpleFilter(new ArraySource(L, R), st);
     const len = Math.ceil(L.length / tempo) + 16384;
     const outL = new Float32Array(len), outR = new Float32Array(len);

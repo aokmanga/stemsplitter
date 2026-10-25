@@ -68,12 +68,17 @@
       <div class="file-info">
         <span class="file-name" id="transport-filename">—</span>
         <span class="file-duration" id="transport-duration">0:00</span>
+        <span class="file-duration" id="key-label"></span>
       </div>
       <div class="transport-controls">
         <button class="transport-btn" id="btn-rewind" title="Torna all'inizio">⏮</button>
         <button class="transport-btn play-btn" id="btn-play" title="Play / Pausa">▶</button>
         <button class="transport-btn" id="btn-stop" title="Stop">⏹</button>
         <button class="transport-btn" id="btn-reset" title="Reset tracce">↺</button>
+        <button class="transport-btn" id="btn-loop-a" title="Imposta punto A">A</button>
+        <button class="transport-btn" id="btn-loop-b" title="Imposta punto B">B</button>
+        <button class="transport-btn" id="btn-loop-toggle" title="Loop on/off" style="opacity:.5">🔁</button>
+        <button class="transport-btn" id="btn-loop-clear" title="Cancella loop">✕</button>
       </div>
       <div class="transport-right">
         <span class="time-display" id="time-current">0:00</span>
@@ -85,6 +90,9 @@
   </label>
   <label>SPD <span id="master-spd-label">1.0x</span>
     <input type="range" id="master-speed" min="0.5" max="2" step="0.05" value="1">
+  </label>
+  <label>TON <span id="master-pitch-label">0</span>
+    <input type="range" id="master-pitch" min="-12" max="12" step="1" value="0">
   </label>
 </div>
         <button class="btn-secondary small" id="btn-back-home">← Libreria</button>

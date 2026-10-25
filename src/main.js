@@ -21,7 +21,7 @@ window._stretch = (buf, tempo, ctx) => {
 };
 
 // Stretch in Web Worker: un worker per stem, in parallelo. Ritorna { promise, cancel }
-window._stretchAsync = (buf, tempo, ctx) => {
+window._stretchAsync = (buf, tempo, ctx, pitch = 0) => {
   const w = new Worker('worker-bundle.js');
   const L = buf.getChannelData(0).slice();
   const R = (buf.numberOfChannels > 1 ? buf.getChannelData(1) : buf.getChannelData(0)).slice();
@@ -35,6 +35,6 @@ window._stretchAsync = (buf, tempo, ctx) => {
     };
     w.onerror = (err) => { w.terminate(); reject(err); };
   });
-  w.postMessage({ L, R, tempo }, [L.buffer, R.buffer]);
+  w.postMessage({ L, R, tempo, pitch }, [L.buffer, R.buffer]);
   return { promise, cancel: () => w.terminate() };
 };
