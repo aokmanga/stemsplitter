@@ -2667,4 +2667,24 @@ Note that this is not an issue if running this frontend on a browser instead of 
     }
     return out;
   };
+  window._stretchAsync = (buf, tempo, ctx) => {
+    const w = new Worker("worker-bundle.js");
+    const L = buf.getChannelData(0).slice();
+    const R = (buf.numberOfChannels > 1 ? buf.getChannelData(1) : buf.getChannelData(0)).slice();
+    const promise = new Promise((resolve, reject) => {
+      w.onmessage = (e) => {
+        const out = ctx.createBuffer(2, e.data.len, buf.sampleRate);
+        out.copyToChannel(e.data.L, 0);
+        out.copyToChannel(e.data.R, 1);
+        w.terminate();
+        resolve(out);
+      };
+      w.onerror = (err) => {
+        w.terminate();
+        reject(err);
+      };
+    });
+    w.postMessage({ L, R, tempo }, [L.buffer, R.buffer]);
+    return { promise, cancel: () => w.terminate() };
+  };
 })();

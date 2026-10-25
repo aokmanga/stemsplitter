@@ -785,6 +785,7 @@ function resetToImport() {
   state.playRate = 1;
   // Velocità: slider, etichetta e valore tornano a 1x (come l'audio del prossimo brano)
   clearTimeout(spdTimer);
+  cancelSpeedJobs();
   state.playbackRate = 1;
   const spd = $('master-speed');
   if (spd) spd.value = 1;
@@ -892,20 +893,51 @@ function setMasterVolume(val) {
 }
 
 let spdTimer;
+let spdToken = 0, spdJobs = [], spdResume = false;
+function cancelSpeedJobs() {
+  spdToken++;
+  spdJobs.forEach(j => j.cancel());
+  spdJobs = [];
+  spdResume = false;
+}
 function setMasterSpeed(val) {
   state.playbackRate = parseFloat(val);
   $('master-spd-label').textContent = `${state.playbackRate.toFixed(2)}x`;
   clearTimeout(spdTimer);
   spdTimer = setTimeout(applySpeed, 400);
 }
-function applySpeed() {
+async function applySpeed() {
   const r = state.playbackRate;
-  const wasPlaying = state.isPlaying;
-  if (wasPlaying) pausePlayback();
-  Object.values(state.tracks).forEach(t => {
-    if (t.buffer) t.stretched = r === 1 ? null : window._stretch(t.buffer, r, getAudioContext());
-  });
-  state.renderedRate = r;
-  if (wasPlaying) startPlayback();
+  const label = $('master-spd-label');
+  const fmt = `${r.toFixed(2)}x`;
+  // Annulla calcoli precedenti ancora in corso
+  spdJobs.forEach(j => j.cancel());
+  spdJobs = [];
+  const token = ++spdToken;
+  if (state.isPlaying) { spdResume = true; pausePlayback(); }
+
+  if (r === 1) {
+    Object.values(state.tracks).forEach(t => { t.stretched = null; });
+    state.renderedRate = 1;
+  } else {
+    label.textContent = `${fmt} ...`;
+    const ctx = getAudioContext();
+    const entries = Object.values(state.tracks).filter(t => t.buffer);
+    const jobs = entries.map(t => window._stretchAsync(t.buffer, r, ctx));
+    spdJobs = jobs;
+    try {
+      const results = await Promise.all(jobs.map(j => j.promise));
+      if (token !== spdToken) return; // superato da una richiesta più recente
+      entries.forEach((t, i) => { t.stretched = results[i]; });
+      state.renderedRate = r;
+    } catch (err) {
+      if (token !== spdToken) return;
+      console.error('Errore velocità:', err);
+      state.renderedRate = 1;
+    }
+    spdJobs = [];
+    label.textContent = fmt;
+  }
+  if (spdResume) { spdResume = false; startPlayback(); }
 }
 init();
