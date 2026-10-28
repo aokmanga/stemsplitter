@@ -38,15 +38,33 @@ struct SessionInfo {
 
 // ── Config ────────────────────────────────────────────────────────
 
+fn home_dir() -> String {
+    tauri::api::path::home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+fn which_binary(name: &str) -> Option<String> {
+    let tool = if cfg!(windows) { "where" } else { "which" };
+    let out = Command::new(tool).arg(name).output().ok()?;
+    if !out.status.success() { return None; }
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    let first = text.lines().next()?.trim().to_string();
+    if first.is_empty() { None } else { Some(first) }
+}
+
 fn config_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home)
-        .join("Library/Application Support/StemSplitter/config.json")
+    tauri::api::path::config_dir()
+        .unwrap_or_default()
+        .join("StemSplitter/config.json")
 }
 
 fn default_library_path() -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    format!("{}/Downloads/StemSplitter", home)
+    tauri::api::path::download_dir()
+        .unwrap_or_default()
+        .join("StemSplitter")
+        .to_string_lossy()
+        .to_string()
 }
 
 #[tauri::command]
@@ -76,7 +94,8 @@ fn save_config(library_path: String) -> Result<(), String> {
 /// poi nel PATH. Le app grafiche non ereditano il PATH del terminale,
 /// quindi i percorsi fissi vengono controllati per primi.
 fn find_binary(name: &str) -> Option<String> {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir();
+    let file = if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() };
     let dirs = [
         "/opt/homebrew/bin".to_string(),
         "/usr/local/bin".to_string(),
@@ -88,17 +107,10 @@ fn find_binary(name: &str) -> Option<String> {
         format!("{}/.local/bin", home),
     ];
     for d in dirs.iter() {
-        let p = Path::new(d).join(name);
+        let p = Path::new(d).join(&file);
         if p.exists() { return Some(p.to_string_lossy().to_string()); }
     }
-    let lookup = format!("command -v {}", name);
-    if let Ok(out) = Command::new("sh").args(&["-c", lookup.as_str()]).output() {
-        if out.status.success() {
-            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !p.is_empty() { return Some(p); }
-        }
-    }
-    None
+    which_binary(name)
 }
 
 /// Legge la durata in secondi di un file audio tramite ffprobe
@@ -235,31 +247,27 @@ async fn pick_output_dir(window: tauri::Window) -> Result<(), String> {
 // ── Demucs ────────────────────────────────────────────────────────
 
 fn find_demucs_path() -> Option<String> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let conda_base  = String::from("/opt/homebrew/Caskroom/miniconda/base/bin/demucs-mlx");
-    let conda_user  = format!("{}/miniconda3/bin/demucs-mlx", home);
-    let conda_user2 = format!("{}/opt/miniconda3/bin/demucs-mlx", home);
-    let conda_user3 = format!("{}/miniforge3/bin/demucs-mlx", home);
-    let conda_user4 = format!("{}/anaconda3/bin/demucs-mlx", home);
-    let homebrew    = String::from("/opt/homebrew/bin/demucs-mlx");
-    let usr_local   = String::from("/usr/local/bin/demucs-mlx");
-    let py313       = format!("{}/Library/Python/3.13/bin/demucs-mlx", home);
-    let local_bin   = format!("{}/.local/bin/demucs-mlx", home);
-
-    let candidates = vec![
-        conda_base, conda_user, conda_user2, conda_user3, conda_user4,
-        homebrew, usr_local, py313, local_bin,
+    let home = home_dir();
+    let name = if cfg!(target_os = "macos") { "demucs-mlx" } else { "demucs" };
+    let file = if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() };
+    let dirs = vec![
+        "/opt/homebrew/Caskroom/miniconda/base/bin".to_string(),
+        format!("{}/miniconda3/bin", home),
+        format!("{}/opt/miniconda3/bin", home),
+        format!("{}/miniforge3/bin", home),
+        format!("{}/anaconda3/bin", home),
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        format!("{}/Library/Python/3.13/bin", home),
+        format!("{}/.local/bin", home),
+        format!("{}/miniconda3/Scripts", home),
+        format!("{}/anaconda3/Scripts", home),
     ];
-    for path in &candidates {
-        if Path::new(path).exists() { return Some(path.clone()); }
+    for d in &dirs {
+        let p = Path::new(d).join(&file);
+        if p.exists() { return Some(p.to_string_lossy().to_string()); }
     }
-    if let Ok(out) = Command::new("sh").args(&["-c", "command -v demucs-mlx"]).output() {
-        if out.status.success() {
-            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !p.is_empty() { return Some(p); }
-        }
-    }
-    None
+    which_binary(name)
 }
 
 #[tauri::command]
@@ -325,19 +333,22 @@ fn run_demucs_blocking(
     let demucs_path = find_demucs_path().ok_or("Demucs non trovato.")?;
     // Controllo ffmpeg PRIMA di separare: evita minuti di lavoro inutile
     let ffmpeg_path = find_binary("ffmpeg")
-        .ok_or("ffmpeg non trovato. Installalo con: brew install ffmpeg")?;
+        .ok_or("ffmpeg non trovato. Installalo e riavvia l'app.")?;
 
     std::fs::create_dir_all(&output_dir)
         .map_err(|e| format!("Impossibile creare cartella output: {}", e))?;
 
     emit_progress(&window, "running", "Separazione in corso... (qualche minuto)", None);
 
-    let mut child = Command::new(&demucs_path)
-        .args(&["--prefetch-tracks", "0", "-o", &output_dir, &input_path])
+    let mut cmd = Command::new(&demucs_path);
+    if cfg!(target_os = "macos") {
+        cmd.args(&["--prefetch-tracks", "0"]);
+    }
+    cmd.args(&["-o", &output_dir, &input_path])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Errore avvio demucs-mlx: {}", e))?;
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn()
+        .map_err(|e| format!("Errore avvio demucs: {}", e))?;
 
     // stdout letto in un thread a parte (evita blocchi se il buffer si riempie)
     let stdout_pipe = child.stdout.take();
@@ -392,6 +403,17 @@ fn run_demucs_blocking(
     }
 
     let stem_dir = PathBuf::from(&output_dir).join(&filename_stem);
+
+    if !cfg!(target_os = "macos") {
+        // demucs classico salva in <output>/htdemucs/<brano>: lo sposto in <output>/<brano>
+        let model_dir = PathBuf::from(&output_dir).join("htdemucs").join(&filename_stem);
+        if model_dir.exists() {
+            std::fs::remove_dir_all(&stem_dir).ok();
+            std::fs::rename(&model_dir, &stem_dir)
+                .map_err(|e| format!("Impossibile spostare gli stem: {}", e))?;
+            std::fs::remove_dir(PathBuf::from(&output_dir).join("htdemucs")).ok();
+        }
+    }
 
     emit_progress(&window, "converting", "Conversione in MP3...", Some(100.0));
 
