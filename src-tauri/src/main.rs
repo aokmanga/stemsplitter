@@ -11,6 +11,8 @@ struct StemPaths {
     bass: String,
     drums: String,
     other: String,
+    guitar: String,
+    piano: String,
     output_dir: String,
 }
 
@@ -188,6 +190,9 @@ fn list_sessions(library_path: String) -> Vec<SessionInfo> {
         let drums  = path.join("drums.mp3");
         let bass   = path.join("bass.mp3");
         let other  = path.join("other.mp3");
+        let guitar = path.join("guitar.mp3");
+        let piano  = path.join("piano.mp3");
+        let opt = |p: &PathBuf| if p.exists() { p.to_string_lossy().to_string() } else { String::new() };
         if !vocals.exists() || !drums.exists() { continue; }
 
         let duration = get_duration(&vocals);
@@ -203,6 +208,8 @@ fn list_sessions(library_path: String) -> Vec<SessionInfo> {
                 bass:   bass.to_string_lossy().to_string(),
                 drums:  drums.to_string_lossy().to_string(),
                 other:  other.to_string_lossy().to_string(),
+                guitar: opt(&guitar),
+                piano:  opt(&piano),
                 output_dir: path.to_string_lossy().to_string(),
             },
         });
@@ -418,7 +425,7 @@ fn run_demucs_blocking(
     emit_progress(&window, "converting", "Conversione in MP3...", Some(100.0));
 
     let mut failed: Vec<String> = Vec::new();
-    for stem_name in &["vocals", "drums", "bass", "other"] {
+    for stem_name in &["vocals", "drums", "bass", "other", "guitar", "piano"] {
         let wav = stem_dir.join(format!("{}.wav", stem_name));
         let mp3 = stem_dir.join(format!("{}.mp3", stem_name));
         if wav.exists() {
@@ -458,6 +465,8 @@ fn run_demucs_blocking(
         bass:   find_stem("bass"),
         drums:  find_stem("drums"),
         other:  find_stem("other"),
+        guitar: if stem_dir.join("guitar.mp3").exists() { find_stem("guitar") } else { String::new() },
+        piano:  if stem_dir.join("piano.mp3").exists()  { find_stem("piano") }  else { String::new() },
         output_dir: stem_dir.to_string_lossy().to_string(),
     })
 }

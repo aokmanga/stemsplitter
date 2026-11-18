@@ -14,6 +14,8 @@ const TRACK_CONFIG = [
   { key: 'drums',  label: 'Batteria', icon: '🥁', color: 'var(--drums-color)',  wave: 'var(--drums-wave)' },
   { key: 'bass',   label: 'Basso',   icon: '🎸', color: 'var(--bass-color)',   wave: 'var(--bass-wave)' },
   { key: 'other',  label: 'Altro',   icon: '🎹', color: 'var(--other-color)',  wave: 'var(--other-wave)' },
+  { key: 'guitar', label: 'Chitarra', icon: '🎸', color: 'var(--guitar-color)', wave: 'var(--guitar-wave)' },
+  { key: 'piano',  label: 'Piano',    icon: '🎹', color: 'var(--piano-color)',  wave: 'var(--piano-wave)' },
 ];
 
 // ── Stato globale ─────────────────────────────────────────────────
@@ -315,7 +317,7 @@ async function loadStems(paths) {
   buildTracksUI();
 
   // Carica ogni stem in parallelo
-  const loadPromises = TRACK_CONFIG.map(cfg => loadStem(cfg.key, paths[cfg.key]));
+  const loadPromises = TRACK_CONFIG.filter(cfg => paths[cfg.key]).map(cfg => loadStem(cfg.key, paths[cfg.key]));
   await Promise.all(loadPromises);
 
   // Solo gli stem caricati davvero contano (uno stem mancante non rompe il resto)
@@ -650,6 +652,7 @@ function buildTracksUI() {
   tracksContainer.innerHTML = '';
 
   TRACK_CONFIG.forEach(cfg => {
+    if (!state.stemPaths?.[cfg.key]) return; // Salta tracce non presenti
     const track = document.createElement('div');
     track.className = 'track';
     track.dataset.track = cfg.key;
@@ -1005,7 +1008,7 @@ function fft(re, im) {
 }
 
 function detectKey() {
-  const bufs = ['vocals', 'bass', 'other'].map(k => state.tracks[k]?.buffer).filter(Boolean);
+  const bufs = ['vocals', 'bass', 'other', 'guitar', 'piano'].map(k => state.tracks[k]?.buffer).filter(Boolean);
   if (!bufs.length) return null;
   const sr = bufs[0].sampleRate, N = 8192, hop = Math.floor(sr * 0.5);
   const chans = bufs.map(b => b.getChannelData(0));

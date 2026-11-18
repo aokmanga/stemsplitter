@@ -32,6 +32,10 @@
   --drums-wave: rgba(245, 166, 35, 0.7);
   --other-color: #3ecf8e;
   --other-wave: rgba(62, 207, 142, 0.7);
+  --guitar-color: #4aa8ff;
+  --guitar-wave: rgba(74, 168, 255, 0.7);
+  --piano-color: #ff7ac8;
+  --piano-wave: rgba(255, 122, 200, 0.7);
 }
 
 html, body {
