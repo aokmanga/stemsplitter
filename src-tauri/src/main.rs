@@ -515,6 +515,16 @@ fn get_audio_info(path: String) -> Result<serde_json::Value, String> {
     serde_json::from_slice(&output.stdout).map_err(|e| format!("Parse error: {}", e))
 }
 
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("Errore lettura {}: {}", path, e))
+}
+
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("Errore scrittura {}: {}", path, e))
+}
+
 fn base64_encode(bytes: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity((bytes.len() + 2) / 3 * 4);
@@ -542,6 +552,8 @@ fn main() {
             run_demucs,
             read_audio_file,
             get_audio_info,
+            read_text_file,
+            write_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("Errore avvio applicazione Tauri");

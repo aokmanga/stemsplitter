@@ -7,7 +7,7 @@ Priorità: P1 alta, P2 media, P3 bassa. Spostare in CHANGELOG quando fatto.
 |---|---|---|
 | P2 | Barra vera durante il ricalcolo | Etichetta `1.25x ...` già fatta |
 | P2 | Cache buffer per velocità già usate | Mappa `velocità → buffer` per stem; svuotare al cambio brano |
-| P2 | Loop A-B | |
+| P2 | Sezioni automatiche (All-In-One → marker) | Python sidecar; poi accordi/griglia/time signature |
 | P2 | Cambio tonalità separato dalla velocità | SoundTouch ha `pitchSemitones` |
 | P2 | Esporta mix (WAV/MP3) con mute/solo/velocità | Serve OfflineAudioContext |
 | P2 | `check_demucs` controlla solo demucs | Se manca `mlx-audio-separator` l'app non avvisa prima: errore solo a separazione avviata |

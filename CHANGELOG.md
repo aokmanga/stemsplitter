@@ -2,6 +2,13 @@
 
 Più recente in alto. Una riga per modifica.
 
+
+## Marker di sezione (da testare)
+- Pulsante 🏷+ nella barra: aggiunge un marker (Intro, Strofa, Pre-ritornello, Ritornello, Bridge, Assolo, Strumentale, Outro, o nome libero) nella posizione attuale
+- Numerazione automatica (Strofa 1, Strofa 2…) e fascia colorata per sezione sulla timeline
+- Clic su un marker: Vai qui, Loop di questa sezione (fino al marker successivo), Sposta alla posizione attuale, Cambia etichetta, Elimina
+- Salvataggio in `markers.json` nella cartella della sessione (nuovi comandi Rust `read_text_file` / `write_text_file`)
+
 ## Non rilasciato
 - Nuovo motore BS-Roformer SW (6 stem) via `mlx-audio-separator`, scelto con due pulsanti nel modal dopo la scelta del file (Demucs 4 stem / BS-Roformer SW 6 stem). Testato (`5b9276a`).
 - Tracce chitarra e pianoforte: lette solo se `guitar.mp3` e `piano.mp3` esistono nella cartella della sessione. Testato (`5b9276a`).

@@ -36,6 +36,7 @@ let state = {
   renderedPitch: 0,
   key: null,
   loop: { a: null, b: null, on: false },
+  markers: [],         // [{ t, type, name }] ordinati per t (secondi, stesso dominio del loop A>B)
 };
 
 // ── Elementi DOM ──────────────────────────────────────────────────
@@ -166,6 +167,8 @@ function setupEventListeners() {
   $('btn-loop-toggle').addEventListener('click', toggleLoop);
   $('btn-loop-clear').addEventListener('click', clearLoop);
   initLoopUI();
+  $('btn-marker-add').addEventListener('click', e => openMarkerMenu(e, null));
+  document.addEventListener('click', closeMarkerMenu);
   btnOpenFile.addEventListener('click', openFile);
   btnPlay.addEventListener('click', togglePlay);
   btnStop.addEventListener('click', stopPlayback);
@@ -780,6 +783,7 @@ function setupTransportInfo() {
   timeCurrent.textContent = '0:00';
   state.key = null; updateKeyLabel();
   setTimeout(() => { state.key = detectKey(); updateKeyLabel(); }, 100);
+  state.markers = []; renderMarkers(); loadMarkers();
 }
 
 // ── Sezioni ───────────────────────────────────────────────────────
@@ -817,6 +821,7 @@ function resetToImport() {
   $('master-pitch-label').textContent = '0';
   state.key = null; updateKeyLabel();
   clearLoop();
+  state.markers = []; renderMarkers();
   // Velocità: slider, etichetta e valore tornano a 1x (come l'audio del prossimo brano)
   clearTimeout(spdTimer);
   cancelSpeedJobs();
@@ -1141,3 +1146,157 @@ function clearLoop() {
   refreshPlayback();
 }
 init();
+
+
+// ── Marker di sezione ─────────────────────────────────────────────
+const MARKER_TYPES = [
+  { id: 'intro',     label: 'Intro',          color: '#7c8aa5' },
+  { id: 'verse',     label: 'Strofa',         color: '#4f8ef7' },
+  { id: 'prechorus', label: 'Pre-ritornello', color: '#9b6ef3' },
+  { id: 'chorus',    label: 'Ritornello',     color: '#e8892b' },
+  { id: 'bridge',    label: 'Bridge',         color: '#2fb27a' },
+  { id: 'solo',      label: 'Assolo',         color: '#e5506a' },
+  { id: 'inst',      label: 'Strumentale',    color: '#c9a227' },
+  { id: 'outro',     label: 'Outro',          color: '#7c8aa5' },
+  { id: 'custom',    label: 'Altro…',         color: '#8a8f98' },
+];
+const markerType = id => MARKER_TYPES.find(t => t.id === id) || MARKER_TYPES[MARKER_TYPES.length - 1];
+
+function markerPath() {
+  const dir = state.stemPaths?.output_dir;
+  return dir ? `${dir}/markers.json` : null;
+}
+
+async function loadMarkers() {
+  const path = markerPath();
+  if (!path) return;
+  try {
+    const data = JSON.parse(await invoke('read_text_file', { path }));
+    state.markers = (data.markers || []).filter(m => typeof m.t === 'number').sort((a, b) => a.t - b.t);
+    renderMarkers();
+  } catch (_) { /* nessun markers.json: normale per un brano nuovo */ }
+}
+
+async function saveMarkers() {
+  const path = markerPath();
+  if (!path) return;
+  try {
+    await invoke('write_text_file', { path, content: JSON.stringify({ version: 1, markers: state.markers }, null, 2) });
+  } catch (err) { console.error('Errore salvataggio marker:', err); }
+}
+
+// Nome mostrato: "Strofa 2" se esistono più marker dello stesso tipo
+function markerLabel(m) {
+  if (m.type === 'custom') return m.name || 'Sezione';
+  const same = state.markers.filter(x => x.type === m.type);
+  const base = markerType(m.type).label;
+  return same.length > 1 ? `${base} ${same.indexOf(m) + 1}` : base;
+}
+
+function markerEnd(m) {
+  const i = state.markers.indexOf(m);
+  return state.markers[i + 1]?.t ?? state.duration;
+}
+
+function renderMarkers() {
+  timeline.querySelectorAll('.marker-flag, .marker-band').forEach(el => el.remove());
+  if (!state.duration) return;
+  state.markers.forEach(m => {
+    const color = markerType(m.type).color;
+    const l = (m.t / state.duration) * 100;
+    const w = ((markerEnd(m) - m.t) / state.duration) * 100;
+    const band = document.createElement('div');
+    band.className = 'marker-band';
+    band.style.cssText = `left:${l}%;width:${w}%;background:${color}`;
+    timeline.appendChild(band);
+
+    const flag = document.createElement('div');
+    flag.className = 'marker-flag' + (l > 85 ? ' right' : '');
+    flag.style.left = `${l}%`;
+    flag.style.background = color;
+    flag.textContent = markerLabel(m);
+    flag.title = `${formatTime(m.t)} — clic per le azioni`;
+    flag.addEventListener('click', e => { e.stopPropagation(); openMarkerMenu(e, m); });
+    timeline.appendChild(flag);
+  });
+}
+
+function seekToSeconds(sec) {
+  state.pauseOffset = sec;
+  updatePlayheadPosition(sec / state.duration);
+  updateTimeDisplay(sec);
+  if (state.isPlaying) { stopAllSources(); startPlayback(); }
+}
+
+function loopMarker(m) {
+  state.loop = { a: m.t, b: markerEnd(m), on: true };
+  updateLoopUI();
+  seekToSeconds(m.t);
+}
+
+function addMarker(type, name) {
+  const t = state.isPlaying ? currentPos() : state.pauseOffset;
+  state.markers.push({ t, type, name: type === 'custom' ? name : undefined });
+  state.markers.sort((a, b) => a.t - b.t);
+  renderMarkers(); saveMarkers();
+}
+
+function closeMarkerMenu() { document.getElementById('marker-menu')?.remove(); }
+
+// m = null → nuovo marker nella posizione attuale; altrimenti azioni su un marker esistente
+function openMarkerMenu(e, m, relabel = false) {
+  e.stopPropagation();
+  const anchorEvent = { target: e.target, stopPropagation() {} };
+  closeMarkerMenu();
+  if (!state.duration) return;
+  const menu = document.createElement('div');
+  menu.id = 'marker-menu';
+  menu.className = 'marker-menu';
+  menu.addEventListener('click', ev => ev.stopPropagation());
+  const item = (html, fn) => {
+    const b = document.createElement('button');
+    b.innerHTML = html;
+    b.addEventListener('click', () => { closeMarkerMenu(); fn(); });
+    menu.appendChild(b);
+  };
+  const title = txt => { const d = document.createElement('div'); d.className = 'mm-title'; d.textContent = txt; menu.appendChild(d); };
+  const typeChooser = onPick => {
+    MARKER_TYPES.forEach(t => {
+      if (t.id === 'custom') return;
+      item(`<span class="mm-dot" style="background:${t.color}"></span>${t.label}`, () => onPick(t.id));
+    });
+    const inp = document.createElement('input');
+    inp.placeholder = 'Altro… (nome + Invio)';
+    inp.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' && inp.value.trim()) { const v = inp.value.trim(); closeMarkerMenu(); onPick('custom', v); }
+      if (ev.key === 'Escape') closeMarkerMenu();
+    });
+    menu.appendChild(inp);
+  };
+
+  if (m && relabel) {
+    title(`Nuova etichetta per ${markerLabel(m)}`);
+    typeChooser((type, name) => {
+      m.type = type; m.name = type === 'custom' ? name : undefined;
+      renderMarkers(); saveMarkers();
+    });
+  } else if (!m) {
+    title(`Nuovo marker a ${formatTime(state.isPlaying ? currentPos() : state.pauseOffset)}`);
+    typeChooser((type, name) => addMarker(type, name));
+  } else {
+    title(`${markerLabel(m)} · ${formatTime(m.t)}`);
+    item('▶ Vai qui', () => seekToSeconds(m.t));
+    item('🔁 Loop di questa sezione', () => loopMarker(m));
+    item('📍 Sposta alla posizione attuale', () => {
+      m.t = state.isPlaying ? currentPos() : state.pauseOffset;
+      state.markers.sort((a, b) => a.t - b.t); renderMarkers(); saveMarkers();
+    });
+    item('✎ Cambia etichetta', () => openMarkerMenu(anchorEvent, m, true));
+    item('🗑 Elimina', () => { state.markers.splice(state.markers.indexOf(m), 1); renderMarkers(); saveMarkers(); });
+  }
+
+  const r = e.target.getBoundingClientRect();
+  menu.style.left = `${Math.min(r.left, window.innerWidth - 200)}px`;
+  menu.style.top = `${r.bottom + 4}px`;
+  document.body.appendChild(menu);
+}
