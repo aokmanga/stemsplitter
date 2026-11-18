@@ -168,6 +168,7 @@ function setupEventListeners() {
   $('btn-loop-clear').addEventListener('click', clearLoop);
   initLoopUI();
   $('btn-marker-add').addEventListener('click', e => openMarkerMenu(e, null));
+  $('btn-detect-sections').addEventListener('click', detectSections);
   document.addEventListener('click', closeMarkerMenu);
   btnOpenFile.addEventListener('click', openFile);
   btnPlay.addEventListener('click', togglePlay);
@@ -1299,4 +1300,35 @@ function openMarkerMenu(e, m, relabel = false) {
   menu.style.left = `${Math.min(r.left, window.innerWidth - 200)}px`;
   menu.style.top = `${r.bottom + 4}px`;
   document.body.appendChild(menu);
+}
+
+// Rilevamento automatico sezioni (scripts/analyze_structure.py via Rust)
+let warnedSimpleEngine = false;
+async function detectSections() {
+  const btn = $('btn-detect-sections');
+  const dir = state.stemPaths?.output_dir;
+  if (!dir || btn.disabled) return;
+  btn.disabled = true; btn.textContent = '⏳';
+  btn.title = 'Analisi in corso… (1-3 minuti)';
+  try {
+    const out = JSON.parse(await invoke('analyze_structure', { sessionDir: dir }));
+    state.analysis = out; // battute/downbeat: serviranno per griglia e accordi
+    const known = new Set(['intro', 'verse', 'chorus', 'bridge', 'solo', 'inst', 'outro']);
+    const auto = out.segments.map(sg => known.has(sg.label)
+      ? { t: sg.start, type: sg.label, auto: true }
+      : { t: sg.start, type: 'custom', name: sg.label === 'break' ? 'Stacco' : sg.label, auto: true });
+    // rilanciare sostituisce solo i marker automatici, tiene quelli manuali
+    state.markers = state.markers.filter(m => !m.auto).concat(auto).sort((a, b) => a.t - b.t);
+    renderMarkers(); saveMarkers();
+    btn.title = `Rileva sezioni (ultimo motore: ${out.engine})`;
+    if (out.engine !== 'allin1' && !warnedSimpleEngine) {
+      warnedSimpleEngine = true;
+      alert('Sezioni rilevate con il motore semplice (librosa): meno precise.\nPer risultati migliori installa All-In-One (vedi README).');
+    }
+  } catch (err) {
+    btn.title = 'Rileva sezioni automaticamente';
+    alert(`Rilevamento sezioni non riuscito:\n${err.message || err}`);
+  } finally {
+    btn.disabled = false; btn.textContent = '🪄';
+  }
 }

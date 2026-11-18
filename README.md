@@ -132,3 +132,14 @@ Aprire i DevTools con `Cmd+Option+I` forza il reflow del layout — comportament
 ```bash
 node_modules/.bin/esbuild src/main.js --bundle --outfile=src/bundle.js
 ```
+
+## Rilevamento automatico sezioni (🪄)
+Funziona subito con `librosa` (meno preciso):
+```
+python3 -m pip install librosa scikit-learn
+```
+Per risultati migliori installa All-In-One (usa lo stesso Python dove hai demucs-mlx):
+```
+python3 -m pip install allin1
+```
+Se allin1 non è installato o fallisce, l'app ripiega da sola su librosa. Il risultato (sezioni, battute, downbeat) è salvato in `analysis.json` nella cartella del brano.

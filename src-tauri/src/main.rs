@@ -515,6 +515,48 @@ fn get_audio_info(path: String) -> Result<serde_json::Value, String> {
     serde_json::from_slice(&output.stdout).map_err(|e| format!("Parse error: {}", e))
 }
 
+const ANALYZE_SCRIPT: &str = include_str!("../../scripts/analyze_structure.py");
+
+/// Analizza la struttura del brano (sezioni, battute) con scripts/analyze_structure.py.
+/// Ritorna il JSON del risultato (scritto anche in <sessione>/analysis.json).
+#[tauri::command]
+async fn analyze_structure(session_dir: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || analyze_structure_blocking(session_dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn analyze_structure_blocking(session_dir: String) -> Result<String, String> {
+    let py_name = if cfg!(windows) { "python" } else { "python3" };
+    let python = find_tool_path(py_name).ok_or("Python non trovato.")?;
+    let ffmpeg = find_binary("ffmpeg").ok_or("ffmpeg non trovato.")?;
+    let tmp = std::env::temp_dir().join("stemsplitter_analysis");
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("Cartella temporanea: {}", e))?;
+    let script = tmp.join("analyze_structure.py");
+    std::fs::write(&script, ANALYZE_SCRIPT).map_err(|e| format!("Scrittura script: {}", e))?;
+    let work = tmp.join("work");
+    let _ = std::fs::remove_dir_all(&work);
+
+    // ffmpeg nel PATH del processo Python (serve anche alle librerie audio)
+    let mut paths: Vec<PathBuf> = Vec::new();
+    if let Some(dir) = Path::new(&ffmpeg).parent() { paths.push(dir.to_path_buf()); }
+    if let Some(cur) = std::env::var_os("PATH") { paths.extend(std::env::split_paths(&cur)); }
+    let new_path = std::env::join_paths(paths).map_err(|e| e.to_string())?;
+
+    let output = Command::new(&python)
+        .arg(&script)
+        .args(&["--session", &session_dir, "--ffmpeg", &ffmpeg, "--work", &work.to_string_lossy()])
+        .env("PATH", new_path)
+        .output()
+        .map_err(|e| format!("Impossibile avviare Python: {}", e))?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let tail: Vec<&str> = err.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect();
+        return Err(format!("Analisi fallita:\n{}", tail.join("\n")));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 #[tauri::command]
 fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("Errore lettura {}: {}", path, e))
@@ -553,6 +595,7 @@ fn main() {
             read_audio_file,
             get_audio_info,
             read_text_file,
+            analyze_structure,
             write_text_file,
         ])
         .run(tauri::generate_context!())

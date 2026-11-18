@@ -3,7 +3,10 @@
 Più recente in alto. Una riga per modifica.
 
 
-## Marker di sezione (da testare)
+## Rilevamento automatico sezioni (da testare)
+- Pulsante 🪄: lancia `scripts/analyze_structure.py` (All-In-One, ripiego librosa) sul mix degli stem; crea marker automatici (rilanciando si sostituiscono solo quelli automatici); salva `analysis.json` con battute e downbeat per griglia/accordi futuri
+
+## Marker di sezione (testato)
 - Pulsante 🏷+ nella barra: aggiunge un marker (Intro, Strofa, Pre-ritornello, Ritornello, Bridge, Assolo, Strumentale, Outro, o nome libero) nella posizione attuale
 - Numerazione automatica (Strofa 1, Strofa 2…) e fascia colorata per sezione sulla timeline
 - Clic su un marker: Vai qui, Loop di questa sezione (fino al marker successivo), Sposta alla posizione attuale, Cambia etichetta, Elimina
