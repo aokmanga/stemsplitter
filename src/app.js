@@ -62,7 +62,8 @@ const outputModal      = $('output-modal');
 const modalDirPath     = $('modal-dir-path');
 const btnChangeDir     = $('btn-change-dir');
 const btnModalCancel   = $('btn-modal-cancel');
-const btnModalConfirm  = $('btn-modal-confirm');
+const btnModalDemucs    = $('btn-modal-demucs');
+const btnModalRoformer  = $('btn-modal-roformer');
 
 // ── Init ──────────────────────────────────────────────────────────
 async function init() {
@@ -180,9 +181,13 @@ function setupEventListeners() {
     resetToImport();
   });
 
-  btnModalConfirm.addEventListener('click', () => {
+  btnModalDemucs.addEventListener('click', () => {
     outputModal.classList.add('hidden');
-    startDemucs();
+    startDemucs('demucs');
+  });
+  btnModalRoformer.addEventListener('click', () => {
+    outputModal.classList.add('hidden');
+    startDemucs('roformer');
   });
 }
 
@@ -272,14 +277,18 @@ async function handleFileSelected(filePath) {
   outputModal.classList.remove('hidden');
 }
 
-async function startDemucs() {
+async function startDemucs(engine) {
   showSection('processing');
+  document.getElementById('processing-hint').innerHTML = engine === 'roformer'
+    ? 'Modello <strong>BS-Roformer SW</strong> via mlx-audio-separator (Apple Silicon).'
+    : 'Modello <strong>htdemucs</strong> via demucs-mlx (Apple Silicon).';
   animateProgressBar();
 
   try {
     const stemPaths = await invoke('run_demucs', {
       inputPath: state.currentFile,
       outputDir: state.outputDir,
+      engine,
     });
 
     state.stemPaths = stemPaths;

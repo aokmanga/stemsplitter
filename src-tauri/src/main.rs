@@ -254,10 +254,13 @@ async fn pick_output_dir(window: tauri::Window) -> Result<(), String> {
 // ── Demucs ────────────────────────────────────────────────────────
 
 fn find_demucs_path() -> Option<String> {
-    let home = home_dir();
     let name = if cfg!(target_os = "macos") { "demucs-mlx" } else { "demucs" };
-    let file = if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() };
-    let dirs = vec![
+    find_tool_path(name)
+}
+
+fn find_tool_path(name: &str) -> Option<String> {
+    let home = home_dir();
+    let file = if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() };    let dirs = vec![
         "/opt/homebrew/Caskroom/miniconda/base/bin".to_string(),
         format!("{}/miniconda3/bin", home),
         format!("{}/opt/miniconda3/bin", home),
@@ -318,10 +321,11 @@ fn emit_progress(window: &tauri::Window, status: &str, message: &str, percent: O
 async fn run_demucs(
     input_path: String,
     output_dir: String,
+    engine: Option<String>,
     window: tauri::Window,
 ) -> Result<StemPaths, String> {
     // Il lavoro pesante gira su un thread dedicato: non blocca l'app
-    tauri::async_runtime::spawn_blocking(move || run_demucs_blocking(input_path, output_dir, window))
+    tauri::async_runtime::spawn_blocking(move || run_demucs_blocking(input_path, output_dir, engine,window))
         .await
         .map_err(|e| format!("Errore interno: {}", e))?
 }
@@ -329,6 +333,7 @@ async fn run_demucs(
 fn run_demucs_blocking(
     input_path: String,
     output_dir: String,
+    engine: Option<String>,
     window: tauri::Window,
 ) -> Result<StemPaths, String> {
     emit_progress(&window, "starting", "Avvio separazione tracce...", None);
@@ -337,7 +342,12 @@ fn run_demucs_blocking(
     let filename_stem = input.file_stem().and_then(|s| s.to_str())
         .ok_or("Nome file non valido")?.to_string();
 
-    let demucs_path = find_demucs_path().ok_or("Demucs non trovato.")?;
+    let use_roformer = engine.as_deref() == Some("roformer");
+    let demucs_path = if use_roformer {
+        find_tool_path("mlx-audio-separator").ok_or("mlx-audio-separator non trovato.")?
+    } else {
+        find_demucs_path().ok_or("Demucs non trovato.")?
+    };
     // Controllo ffmpeg PRIMA di separare: evita minuti di lavoro inutile
     let ffmpeg_path = find_binary("ffmpeg")
         .ok_or("ffmpeg non trovato. Installalo e riavvia l'app.")?;
@@ -348,12 +358,20 @@ fn run_demucs_blocking(
     emit_progress(&window, "running", "Separazione in corso... (qualche minuto)", None);
 
     let mut cmd = Command::new(&demucs_path);
-    if cfg!(target_os = "macos") {
-        cmd.args(&["--prefetch-tracks", "0"]);
+    if use_roformer {
+        let rdir = PathBuf::from(&output_dir).join(&filename_stem);
+        std::fs::create_dir_all(&rdir)
+            .map_err(|e| format!("Impossibile creare cartella brano: {}", e))?;
+        cmd.args(&["-m", "BS-Roformer-SW.ckpt", "--output_format", "MP3", "--output_dir"])
+            .arg(&rdir)
+            .arg(&input_path);
+    } else {
+        if cfg!(target_os = "macos") {
+            cmd.args(&["--prefetch-tracks", "0"]);
+        }
+        cmd.args(&["-o", &output_dir, &input_path]);
     }
-    cmd.args(&["-o", &output_dir, &input_path])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn()
         .map_err(|e| format!("Errore avvio demucs: {}", e))?;
 
@@ -410,7 +428,13 @@ fn run_demucs_blocking(
     }
 
     let stem_dir = PathBuf::from(&output_dir).join(&filename_stem);
-
+    if use_roformer {
+        for name in &["vocals", "drums", "bass", "other", "guitar", "piano"] {
+            let from = stem_dir.join(format!("{}_({})_BS-Roformer-SW.mp3", filename_stem, name));
+            let to = stem_dir.join(format!("{}.mp3", name));
+            if from.exists() { std::fs::rename(&from, &to).ok(); }
+        }
+    }
     if !cfg!(target_os = "macos") {
         // demucs classico salva in <output>/htdemucs/<brano>: lo sposto in <output>/<brano>
         let model_dir = PathBuf::from(&output_dir).join("htdemucs").join(&filename_stem);

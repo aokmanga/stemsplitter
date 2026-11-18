@@ -54,11 +54,11 @@
     <div class="processing-card">
       <div class="spinner-wrap"><div class="spinner"></div></div>
       <h2 id="processing-title">Separazione tracce in corso…</h2>
-      <p id="processing-sub">Demucs sta elaborando il tuo file. Può richiedere qualche minuto.</p>
+      <p id="processing-sub">Sto elaborando il tuo file. Può richiedere qualche minuto.</p>
       <div class="progress-bar-wrap">
         <div class="progress-bar" id="progress-bar"></div>
       </div>
-      <p class="processing-hint">Modello <strong>htdemucs</strong> via demucs-mlx (Apple Silicon).</p>
+      <p class="processing-hint" id="processing-hint">Modello <strong>htdemucs</strong> via demucs-mlx (Apple Silicon).</p>
     </div>
   </section>
 
@@ -117,7 +117,8 @@
       </div>
       <div class="modal-actions">
         <button class="btn-secondary" id="btn-modal-cancel">Annulla</button>
-        <button class="btn-primary" id="btn-modal-confirm">Avvia separazione</button>
+        <button class="btn-primary" id="btn-modal-demucs">Demucs · 4 stem</button>
+        <button class="btn-primary" id="btn-modal-roformer">BS-Roformer SW · 6 stem</button>
       </div>
     </div>
   </div>
