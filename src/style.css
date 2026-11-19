@@ -887,3 +887,21 @@ input[type="range"].volume-slider::-webkit-slider-thumb:hover {
 .marker-menu input { background: rgba(255,255,255,.08); cursor: text; outline: none; }
 .marker-menu .mm-title { opacity: .6; font-size: 11px; padding: 2px 8px; }
 .marker-menu .mm-dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; }
+
+/* ── Griglia accordi ─────────────────────────────────────────────── */
+.chord-panel { padding: 8px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.chord-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.chord-now { font-size: 22px; font-weight: 700; min-width: 90px; }
+.chord-controls { display: flex; align-items: center; gap: 10px; font-size: 12px; opacity: .9; }
+.chord-controls select { background: rgba(255,255,255,0.08); color: inherit; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 2px 4px; }
+.chord-empty { font-size: 12px; opacity: .6; padding: 8px 0; }
+.chord-strip { position: relative; overflow: hidden; height: 52px; }
+.chord-track { display: flex; position: absolute; left: 0; top: 0; will-change: transform; }
+.chord-sq { box-sizing: border-box; flex: 0 0 46px; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center;
+  position: relative; border: 1px solid rgba(255,255,255,0.10); border-left-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); cursor: pointer; }
+.chord-sq.pad { border-color: transparent; background: transparent; cursor: default; }
+.chord-sq.bar-start { border-left: 2px solid rgba(255,255,255,0.45); }
+.chord-sq.now { background: rgba(79,142,247,0.35); border-color: #4f8ef7; }
+.chord-sq .chord-txt { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.chord-sq .chord-txt.hold::after { content: '·'; opacity: .35; }
+.chord-sq .bar-num { position: absolute; top: 1px; left: 3px; font-size: 9px; opacity: .45; }

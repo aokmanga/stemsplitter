@@ -7,11 +7,20 @@ e lo stampa su stdout. Motore: All-In-One (allin1) se installato, altrimenti lib
 Output: {engine, bpm, beats, downbeats, segments:[{start,end,label}]}
 Etichette: intro, verse, chorus, bridge, solo, inst, outro, break
 """
-import argparse, json, os, subprocess, sys
+import argparse, json, os, subprocess, sys, wave
 
 STEMS = ["vocals", "drums", "bass", "other", "guitar", "piano"]
 
-
+def load_allin1():
+    """Prova allin1_infer (fork), poi allin1 originale. Ritorna (modulo, nome)."""
+    for name in ("allin1_infer", "allin1"):
+        try:
+            return __import__(name), name
+        except ImportError:
+            continue
+        except Exception as e:
+            log(f"{name} presente ma non importabile: {e}")
+    return None, None
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
 
@@ -32,7 +41,12 @@ def mix(ffmpeg, inputs, out):
     ff(ffmpeg, args + ["-filter_complex", f"amix=inputs={n}:duration=longest,volume={n}",
                        "-ar", "44100", "-ac", "2", out])
 
-
+def fit_len(ffmpeg, path, n):
+    """Porta il file esattamente a n campioni (padding o taglio)."""
+    tmp = path + ".tmp.wav"
+    ff(ffmpeg, ["-i", path, "-af", f"apad=whole_len={n},atrim=end_sample={n}",
+                "-ar", "44100", "-ac", "2", tmp])
+    os.replace(tmp, path)
 def prepare(session, ffmpeg, work):
     """Crea mix.wav e la struttura demix/htdemucs/mix/{vocals,drums,bass,other}.wav"""
     found = {s: os.path.join(session, s + ".mp3") for s in STEMS}
@@ -53,21 +67,29 @@ def prepare(session, ffmpeg, work):
         mix(ffmpeg, other, os.path.join(dm, "other.wav"))
     else:
         ff(ffmpeg, ["-i", mix_wav, "-af", "volume=0", os.path.join(dm, "other.wav")])
+    with wave.open(mix_wav) as w:
+        n = w.getnframes()
+    for s in ("vocals", "drums", "bass", "other"):
+        fit_len(ffmpeg, os.path.join(dm, s + ".wav"), n)
     return mix_wav
 
-
-def run_allin1(mix_wav, work):
-    import allin1
-    log("Motore: All-In-One")
-    r = allin1.analyze(mix_wav, demix_dir=os.path.join(work, "demix"),
-                       spec_dir=os.path.join(work, "spec"), device="cpu",
-                       keep_byproducts=True)
+def run_allin1(mix_wav, work, mod, name):
+    log(f"Motore: {name}")
+    r = mod.analyze(mix_wav, demix_dir=os.path.join(work, "demix"),
+                    spec_dir=os.path.join(work, "spec"), device="cpu",
+                    keep_byproducts=True)
     segs = [{"start": float(s.start), "end": float(s.end), "label": s.label}
             for s in r.segments if s.label not in ("start", "end")]
-    return {"engine": "allin1", "bpm": float(r.bpm) if r.bpm else None,
+    merged = []
+    for s in segs:
+        if merged and merged[-1]["label"] == s["label"]:
+            merged[-1]["end"] = s["end"]
+        else:
+            merged.append(dict(s))
+    segs = merged
+    return {"engine": name, "bpm": float(r.bpm) if r.bpm else None,
             "beats": [float(b) for b in r.beats],
             "downbeats": [float(b) for b in r.downbeats], "segments": segs}
-
 
 def run_librosa(mix_wav):
     import numpy as np, librosa
@@ -140,28 +162,33 @@ def main():
     ap.add_argument("--session", required=True)
     ap.add_argument("--ffmpeg", required=True)
     ap.add_argument("--work", required=True)
+    ap.add_argument("--engine", choices=["auto", "allin1", "librosa"], default="auto")
     a = ap.parse_args()
     os.makedirs(a.work, exist_ok=True)
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr  # i messaggi di allin1_infer non devono sporcare il JSON
     mix_wav = prepare(a.session, a.ffmpeg, a.work)
     result = None
-    try:
-        import allin1  # noqa: F401
-        result = run_allin1(mix_wav, a.work)
-    except ImportError:
-        log("allin1 non installato: uso il ripiego librosa")
-    except Exception as e:  # allin1 presente ma fallito
-        log(f"allin1 fallito ({e}): uso il ripiego librosa")
+    if a.engine in ("auto", "allin1"):
+        mod, name = load_allin1()
+        if mod is None:
+            log("allin1_infer/allin1 non installati: uso il ripiego librosa")
+        else:
+            try:
+                result = run_allin1(mix_wav, a.work, mod, name)
+            except Exception as e:
+                log(f"{name} fallito ({e}): uso il ripiego librosa")
     if result is None:
         try:
             result = run_librosa(mix_wav)
         except ImportError:
-            print("Manca librosa: installa con  python3 -m pip install librosa scikit-learn", file=sys.stderr)
+            print("Manca librosa: python3 -m pip install librosa scikit-learn", file=sys.stderr)
             sys.exit(2)
     out = json.dumps(result, ensure_ascii=False)
     with open(os.path.join(a.session, "analysis.json"), "w") as f:
         f.write(out)
+    sys.stdout = real_stdout
     print(out)
-
 
 if __name__ == "__main__":
     main()

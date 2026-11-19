@@ -81,6 +81,7 @@
         <button class="transport-btn" id="btn-loop-clear" title="Cancella loop">✕</button>
         <button class="transport-btn" id="btn-marker-add" title="Aggiungi marker di sezione qui">🏷+</button>
         <button class="transport-btn" id="btn-detect-sections" title="Rileva sezioni automaticamente">🪄</button>
+        <button class="transport-btn" id="btn-detect-chords" title="Riconosci accordi">🎶</button>
       </div>
       <div class="transport-right">
         <span class="time-display" id="time-current">0:00</span>
@@ -105,6 +106,19 @@
         <div class="playhead" id="playhead"></div>
       </div>
     </div>
+    <div class="chord-panel" id="chord-panel">
+      <div class="chord-head">
+        <span class="chord-now" id="chord-now">—</span>
+        <div class="chord-controls" id="chord-controls" style="display:none">
+          <label>Tempi <select id="chord-bpb"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+          <button class="btn-secondary small" id="chord-shift-l" title="Sposta l'inizio battuta indietro di un movimento">◀ 1</button>
+          <button class="btn-secondary small" id="chord-shift-r" title="Sposta l'inizio battuta avanti di un movimento">1 ▶</button>
+          <label>Nomi <select id="chord-notation"><option value="EN">C G Am</option><option value="IT">Do Sol Lam</option></select></label>
+        </div>
+      </div>
+      <div class="chord-empty" id="chord-empty">Premi 🎶 per riconoscere gli accordi di questo brano.</div>
+      <div class="chord-strip" id="chord-strip"><div class="chord-track" id="chord-track"></div></div>
+    </div>
     <div class="tracks-container" id="tracks-container"></div>
   </section>
 
@@ -127,5 +141,6 @@
 
   <script src="bundle.js"></script>
   <script src="app.js"></script>
+  <script src="chords.js"></script>
 </body>
 </html>

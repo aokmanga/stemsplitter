@@ -527,13 +527,30 @@ async fn analyze_structure(session_dir: String) -> Result<String, String> {
 }
 
 fn analyze_structure_blocking(session_dir: String) -> Result<String, String> {
+    run_analysis_script("analyze_structure.py", ANALYZE_SCRIPT, session_dir)
+}
+
+const CHORDS_SCRIPT: &str = include_str!("../../scripts/analyze_chords.py");
+
+/// Riconosce gli accordi (uno per battito) con scripts/analyze_chords.py.
+/// Ritorna il JSON del risultato (scritto anche in <sessione>/chords.json).
+#[tauri::command]
+async fn analyze_chords(session_dir: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_analysis_script("analyze_chords.py", CHORDS_SCRIPT, session_dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn run_analysis_script(script_name: &str, script_src: &str, session_dir: String) -> Result<String, String> {
     let py_name = if cfg!(windows) { "python" } else { "python3" };
     let python = find_tool_path(py_name).ok_or("Python non trovato.")?;
     let ffmpeg = find_binary("ffmpeg").ok_or("ffmpeg non trovato.")?;
     let tmp = std::env::temp_dir().join("stemsplitter_analysis");
     std::fs::create_dir_all(&tmp).map_err(|e| format!("Cartella temporanea: {}", e))?;
-    let script = tmp.join("analyze_structure.py");
-    std::fs::write(&script, ANALYZE_SCRIPT).map_err(|e| format!("Scrittura script: {}", e))?;
+    let script = tmp.join(script_name);
+    std::fs::write(&script, script_src).map_err(|e| format!("Scrittura script: {}", e))?;
     let work = tmp.join("work");
     let _ = std::fs::remove_dir_all(&work);
 
@@ -596,6 +613,7 @@ fn main() {
             get_audio_info,
             read_text_file,
             analyze_structure,
+            analyze_chords,
             write_text_file,
         ])
         .run(tauri::generate_context!())
