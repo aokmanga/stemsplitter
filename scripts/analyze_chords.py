@@ -18,8 +18,8 @@ RHY = ["drums", "bass"]
 QUAL = {"maj": [0, 4, 7], "min": [0, 3, 7], "7": [0, 4, 7, 10],
         "maj7": [0, 4, 7, 11], "min7": [0, 3, 7, 10]}
 PENALTY = {"maj": 0.0, "min": 0.0, "7": 0.04, "maj7": 0.05, "min7": 0.05}
-SELF_P = 0.85  # probabilità di restare sullo stesso accordo al battito dopo
-
+SELF_P = 0.5  # probabilità di restare sullo stesso accordo al battito dopo
+TEMP = 16
 
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
@@ -50,6 +50,9 @@ def main():
     ap.add_argument("--session", required=True)
     ap.add_argument("--ffmpeg", required=True)
     ap.add_argument("--work", required=True)
+    ap.add_argument("--self-p", type=float, default=SELF_P)
+    ap.add_argument("--temp", type=float, default=TEMP)
+    ap.add_argument("--debug", action="store_true")
     a = ap.parse_args()
     os.makedirs(a.work, exist_ok=True)
     try:
@@ -128,11 +131,17 @@ def main():
     quiet = energy < 0.08 * np.median(energy)
     S = len(names) + 1                                      # +1 = "N"
     obs = np.vstack([emis, np.where(quiet, 1.5, 0.3)[None, :]])
-    prob = np.exp(10 * (obs - obs.max(axis=0, keepdims=True)))
+    prob = np.exp(a.temp * (obs - obs.max(axis=0, keepdims=True)))
     prob /= prob.sum(axis=0, keepdims=True)
-    trans = np.full((S, S), (1 - SELF_P) / (S - 1))
-    np.fill_diagonal(trans, SELF_P)
+    trans = np.full((S, S), (1 - a.self_p) / (S - 1))
+    np.fill_diagonal(trans, a.self_p)
     path = librosa.sequence.viterbi(prob, trans)
+    if a.debug:
+        nm = lambda k: names[k] if k < len(names) else "N"
+        raw = obs.argmax(axis=0)
+        with open(os.path.join(a.session, "chords_debug.txt"), "w") as f:
+            for i in range(n):
+                f.write(f"{i:4d} {beats[i]:7.2f} {nm(raw[i]):8s} viterbi={nm(path[i])}\n")
     chords = [names[i] if i < len(names) else "N" for i in path]
 
     # ── movimenti per battuta e primo battito di battuta ──
