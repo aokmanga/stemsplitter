@@ -53,6 +53,7 @@ def main():
     ap.add_argument("--self-p", type=float, default=SELF_P)
     ap.add_argument("--temp", type=float, default=TEMP)
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--smooth", type=int, default=4)
     a = ap.parse_args()
     os.makedirs(a.work, exist_ok=True)
     try:
@@ -112,6 +113,12 @@ def main():
     sync = lambda m: librosa.util.sync(m, bf, aggregate=np.mean, pad=True)[:, 1:]
     C, B = sync(chroma), sync(bchroma)
     n = C.shape[1]
+    # arpeggi: nei battiti con ≤2 note forti uso la media dei battiti vicini
+    if a.smooth > 1:
+        from scipy.ndimage import uniform_filter1d
+        sparse = (C > 0.35 * C.max(axis=0, keepdims=True)).sum(axis=0) <= 2
+        C = np.where(sparse[None, :], uniform_filter1d(C, size=a.smooth, axis=1, mode="nearest"), C)
+        B = np.where(sparse[None, :], uniform_filter1d(B, size=a.smooth, axis=1, mode="nearest"), B)
     energy = C.sum(axis=0)
     Cn = C / (np.linalg.norm(C, axis=0, keepdims=True) + 1e-9)
     Bn = B / (B.max(axis=0, keepdims=True) + 1e-9)
