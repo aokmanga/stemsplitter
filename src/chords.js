@@ -119,12 +119,46 @@
     const next = b[lo + 1] ?? (b[lo] + (b[lo] - (b[lo - 1] ?? b[lo] - 0.5)));
     return lo + Math.min(1, (t - b[lo]) / (next - b[lo]));
   }
-
+  // ── Tonalità dagli accordi (più affidabile dell'audio con pochi accordi) ──
+  function keyFromChords(chords) {
+    const cq = q => (q === 'min' || q === 'min7') ? 'min' : 'maj';
+    const seq = chords.filter(c => c !== 'N').map(c => { const [r, q] = c.split(':'); return { r: +r, q: cq(q) }; });
+    if (seq.length < 8) return null;
+    const first = seq[0], last = seq[seq.length - 1], prior = state.key;
+    const MIN = { 0: 'min', 2: 'dim', 3: 'maj', 5: 'min', 7: 'min', 8: 'maj', 10: 'maj' };
+    const MAJ = { 0: 'maj', 2: 'min', 4: 'min', 5: 'maj', 7: 'maj', 9: 'min', 11: 'dim' };
+    let best = null;
+    for (let root = 0; root < 12; root++) for (const minor of [false, true]) {
+      const tq = minor ? 'min' : 'maj';
+      let fit = 0, tonic = 0;
+      for (const { r, q } of seq) {
+        const d = (r - root + 12) % 12;
+        let c = 0;
+        if (minor) c = MIN[d] === q ? 1 : (d === 7 && q === 'maj') ? 0.9 : (d === 5 && q === 'maj') ? 0.8 : 0;
+        else c = MAJ[d] === q ? 1 : (d === 10 && q === 'maj') ? 0.6 : 0;
+        fit += c;
+        if (d === 0 && q === tq) tonic++;
+      }
+      let s = fit / seq.length + 0.5 * tonic / seq.length;
+      if (first.r === root && first.q === tq) s += 0.3;
+      if (last.r === root && last.q === tq) s += 0.15;
+      if (prior && prior.root === root && prior.minor === minor) s += 0.1;
+      if (!best || s > best.s) best = { root, minor, s };
+    }
+    return best;
+  }
+  function applyChordKey() {
+    const k = keyFromChords(data.chords);
+    if (!k) return;
+    state.key = { root: k.root, minor: k.minor, c: k.s, src: 'chords' };
+    updateKeyLabel();
+  }
   function frame() {
     requestAnimationFrame(frame);
     const dir = state.stemPaths?.output_dir || null;
     if (dir !== loadedFor) { loadedFor = dir; if (dir) load(); else { data = null; build(); } }
     if (!data || !state.duration) return;
+    if (state.key && state.key.src !== 'chords') applyChordKey();
     if (state.pitch !== lastPitch || notation !== lastNotation || state.key !== lastKey) relabel();
 
     const t = state.isPlaying ? currentPos() : state.pauseOffset;
@@ -153,6 +187,7 @@
     btn.title = 'Riconoscimento accordi in corso… (1-2 minuti)';
     try {
       data = JSON.parse(await invoke('analyze_chords', { sessionDir: dir }));
+      if (state.key) applyChordKey();
       build();
     } catch (err) {
       alert(`Riconoscimento accordi non riuscito:\n${err.message || err}`);
