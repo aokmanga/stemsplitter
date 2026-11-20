@@ -1,8 +1,10 @@
-/Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/deps/stemsplitter-e96e1d2bd6a1afee.d: src/main.rs /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/icon.icns /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/Info.plist
+/Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/deps/stemsplitter-e96e1d2bd6a1afee.d: src/main.rs src/../../scripts/analyze_structure.py src/../../scripts/analyze_chords.py /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/icon.icns /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/Info.plist
 
-/Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/deps/stemsplitter-e96e1d2bd6a1afee: src/main.rs /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/icon.icns /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/Info.plist
+/Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/deps/stemsplitter-e96e1d2bd6a1afee: src/main.rs src/../../scripts/analyze_structure.py src/../../scripts/analyze_chords.py /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/icon.icns /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/Info.plist
 
 src/main.rs:
+src/../../scripts/analyze_structure.py:
+src/../../scripts/analyze_chords.py:
 /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/icon.icns:
 /Users/simone/Desktop/Progetti/Stemsplitter/stemsplitter/src-tauri/target/debug/build/stemsplitter-7dfe0ce120240781/out/Info.plist:
 

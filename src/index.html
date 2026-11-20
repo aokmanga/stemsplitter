@@ -33,13 +33,23 @@
           <button class="btn-primary" id="btn-open-file">Apri file audio</button>
           <p class="drop-formats">MP3 · WAV · FLAC · M4A · OGG · AIFF · AAC</p>
         </div>
-      </div>
-      <div class="library-header">
-        <span class="library-title">Brani separati</span>
-        <div class="library-path-row">
-          <span class="library-path" id="library-path-label">—</span>
-          <button class="btn-secondary small" id="btn-change-library">Cambia…</button>
+        <div class="yt-box" id="yt-box">
+          <div class="drop-icon">▶</div>
+          <p class="drop-title">Da YouTube</p>
+          <div class="yt-row">
+            <input type="text" id="yt-url" placeholder="Incolla il link YouTube…" spellcheck="false" autocomplete="off">
+            <button class="btn-secondary small" id="btn-yt-update" title="Aggiorna yt-dlp">Aggiorna yt-dlp</button>
+          </div>
+          <button class="btn-primary" id="btn-yt-go">Scarica e separa</button>
+          <span class="yt-status" id="yt-status"></span>
         </div>
+      </div>
+    </div>
+    <div class="library-header">
+      <span class="library-title">Brani separati</span>
+      <div class="library-path-row">
+        <span class="library-path" id="library-path-label">—</span>
+        <button class="btn-secondary small" id="btn-change-library">Cambia…</button>
       </div>
     </div>
     <div class="sessions-list" id="sessions-list">
@@ -139,8 +149,35 @@
     </div>
   </div>
 
+  <!-- ELIMINA SESSIONE MODAL -->
+  <div class="modal-overlay hidden" id="delete-modal">
+    <div class="modal">
+      <h3>Eliminare questo brano?</h3>
+      <p><strong id="del-name"></strong><br>Verrà cancellata l'intera cartella con tutti gli stem. L'operazione non si può annullare.</p>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-del-cancel">Annulla</button>
+        <button class="btn-danger" id="btn-del-confirm">Elimina</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- YOUTUBE ARTISTA/TITOLO MODAL -->
+  <div class="modal-overlay hidden" id="yt-modal">
+    <div class="modal">
+      <h3>Brano da YouTube</h3>
+      <p>Scrivi almeno uno tra artista e titolo: serviranno per il nome del file e della sessione.</p>
+      <input type="text" id="yt-artist" placeholder="Artista" spellcheck="false" autocomplete="off">
+      <input type="text" id="yt-title" placeholder="Titolo" spellcheck="false" autocomplete="off">
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-yt-cancel">Annulla</button>
+        <button class="btn-primary" id="btn-yt-confirm" disabled>Conferma</button>
+      </div>
+    </div>
+  </div>
+
   <script src="bundle.js"></script>
   <script src="app.js"></script>
   <script src="chords.js"></script>
+  <script src="youtube.js"></script>
 </body>
 </html>

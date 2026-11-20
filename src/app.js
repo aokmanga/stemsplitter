@@ -117,11 +117,16 @@ async function loadSessions() {
           <div class="session-meta"></div>
         </div>
         <button class="btn-secondary small session-open-btn">Apri →</button>
+        <button class="session-del-btn" title="Elimina brano">🗑</button>
       `;
       // textContent (non innerHTML): il nome della cartella non viene mai interpretato come HTML
       item.querySelector('.session-name').textContent = session.name;
       item.querySelector('.session-meta').textContent = `${dur} \u00A0·\u00A0 ${formatDate(session.date)}`;
       item.addEventListener('click', () => openSession(session));
+      item.querySelector('.session-del-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        askDeleteSession(session);
+      });
       list.appendChild(item);
     });
   } catch(e) {
@@ -129,6 +134,33 @@ async function loadSessions() {
     if (empty) { empty.style.display = 'flex'; empty.querySelector('p').textContent = 'Errore lettura libreria.'; }
   }
 }
+
+// ── Elimina sessione ──────────────────────────────────────────────
+let pendingDelete = null;
+
+function askDeleteSession(session) {
+  pendingDelete = session;
+  $('del-name').textContent = session.name;
+  $('delete-modal').classList.remove('hidden');
+}
+
+$('btn-del-cancel').addEventListener('click', () => {
+  pendingDelete = null;
+  $('delete-modal').classList.add('hidden');
+});
+
+$('btn-del-confirm').addEventListener('click', async () => {
+  const s = pendingDelete;
+  pendingDelete = null;
+  $('delete-modal').classList.add('hidden');
+  if (!s) return;
+  try {
+    await invoke('delete_session', { libraryPath: state.outputDir, sessionPath: s.path });
+  } catch (err) {
+    alert(`Impossibile eliminare:\n${err.message || err}`);
+  }
+  loadSessions();
+});
 
 async function openSession(session) {
   state.currentFile = session.path;

@@ -220,6 +220,20 @@ fn list_sessions(library_path: String) -> Vec<SessionInfo> {
     sessions
 }
 
+#[tauri::command]
+fn delete_session(library_path: String, session_path: String) -> Result<(), String> {
+    let lib = std::fs::canonicalize(&library_path).map_err(|e| format!("Libreria non valida: {}", e))?;
+    let sess = std::fs::canonicalize(&session_path).map_err(|e| format!("Cartella non valida: {}", e))?;
+    // Sicurezza: solo una cartella direttamente dentro la libreria, che contenga davvero degli stem
+    if sess.parent() != Some(lib.as_path()) {
+        return Err("La cartella non è dentro la libreria".into());
+    }
+    if !sess.join("vocals.mp3").exists() {
+        return Err("Non sembra una cartella di stem: non la cancello".into());
+    }
+    std::fs::remove_dir_all(&sess).map_err(|e| format!("Impossibile eliminare: {}", e))
+}
+
 // ── Dialogs ───────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -599,6 +613,140 @@ fn base64_encode(bytes: &[u8]) -> String {
     result
 }
 
+// ── YouTube (yt-dlp) ──────────────────────────────────────────────
+
+fn sanitize_name(s: &str) -> String {
+    let cleaned: String = s.chars()
+        .map(|c| if "/\\:*?\"<>|%".contains(c) || c.is_control() { ' ' } else { c })
+        .collect();
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ").trim_matches('.').to_string()
+}
+
+fn yt_path_env(ffmpeg: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(dir) = Path::new(ffmpeg).parent() { parts.push(dir.to_string_lossy().to_string()); }
+    parts.push("/opt/homebrew/bin".into());
+    parts.push("/usr/local/bin".into());
+    parts.push("/usr/bin".into());
+    parts.push("/bin".into());
+    parts.join(":")
+}
+
+fn yt_version_of(path: &str) -> String {
+    Command::new(path).arg("--version").output().ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn yt_dlp_version() -> Result<String, String> {
+    let p = find_binary("yt-dlp").ok_or("yt-dlp non trovato. Installalo con: brew install yt-dlp")?;
+    let v = yt_version_of(&p);
+    if v.is_empty() { Err("Impossibile leggere la versione di yt-dlp".into()) } else { Ok(v) }
+}
+
+#[tauri::command]
+async fn update_yt_dlp() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| -> Result<String, String> {
+        let p = find_binary("yt-dlp").ok_or("yt-dlp non trovato. Installalo con: brew install yt-dlp")?;
+        let before = yt_version_of(&p);
+        let via_brew = p.starts_with("/opt/homebrew") || p.starts_with("/usr/local");
+        let out = (if via_brew {
+            let brew = find_binary("brew").ok_or("Homebrew non trovato")?;
+            Command::new(brew).args(&["upgrade", "yt-dlp"])
+                .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+                .output()
+        } else {
+            Command::new(&p).arg("-U").output()
+        }).map_err(|e| format!("Errore aggiornamento: {}", e))?;
+        let after = yt_version_of(&p);
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr).to_string();
+            let tail: String = err.chars().rev().take(400).collect::<Vec<_>>().into_iter().rev().collect();
+            return Err(format!("Aggiornamento non riuscito: {}", tail.trim()));
+        }
+        if before == after { Ok(format!("Già aggiornato ({})", after)) }
+        else { Ok(format!("Aggiornato: {} → {}", before, after)) }
+    }).await.map_err(|e| format!("Errore interno: {}", e))?
+}
+
+#[tauri::command]
+async fn download_youtube(url: String, name: String, window: tauri::Window) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || download_youtube_blocking(url, name, window))
+        .await
+        .map_err(|e| format!("Errore interno: {}", e))?
+}
+
+fn download_youtube_blocking(url: String, name: String, window: tauri::Window) -> Result<String, String> {
+    let url = url.trim().to_string();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("Indirizzo non valido".into());
+    }
+    let name = sanitize_name(&name);
+    if name.is_empty() { return Err("Nome non valido".into()); }
+    let yt = find_binary("yt-dlp").ok_or("yt-dlp non trovato. Installalo con: brew install yt-dlp")?;
+    let ffmpeg = find_binary("ffmpeg").ok_or("ffmpeg non trovato.")?;
+
+    let dir = std::env::temp_dir().join("stemsplitter-youtube");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Impossibile creare la cartella: {}", e))?;
+    let target = dir.join(format!("{}.mp3", name));
+    let _ = std::fs::remove_file(&target);
+    let template = dir.join(format!("{}.%(ext)s", name));
+
+    emit_progress(&window, "starting", "Download da YouTube...", None);
+
+    let mut child = Command::new(&yt)
+        .args(&["--no-playlist", "-x", "--audio-format", "mp3", "--audio-quality", "0",
+                "--newline", "--ffmpeg-location", ffmpeg.as_str(), "-o"])
+        .arg(template.to_string_lossy().to_string())
+        .arg(&url)
+        .env("PATH", yt_path_env(&ffmpeg))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Impossibile avviare yt-dlp: {}", e))?;
+
+    let stderr_pipe = child.stderr.take();
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut e) = stderr_pipe {
+            let mut bytes = Vec::new();
+            e.read_to_end(&mut bytes).ok();
+            buf = String::from_utf8_lossy(&bytes).to_string();
+        }
+        buf
+    });
+
+    let mut last_percent: f32 = -1.0;
+    if let Some(o) = child.stdout.take() {
+        for line in std::io::BufRead::lines(std::io::BufReader::new(o)).flatten() {
+            if line.starts_with("[download]") {
+                if let Some(p) = parse_percent(&line) {
+                    if (p - last_percent).abs() >= 1.0 {
+                        last_percent = p;
+                        emit_progress(&window, "running",
+                            &format!("Download da YouTube... {:.0}%", p), Some(p));
+                    }
+                }
+            } else if line.starts_with("[ExtractAudio]") {
+                emit_progress(&window, "converting", "Conversione in MP3...", Some(100.0));
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("Errore attesa yt-dlp: {}", e))?;
+    let err_all = stderr_thread.join().unwrap_or_default();
+    if !status.success() {
+        let tail: String = err_all.chars().rev().take(500).collect::<Vec<_>>().into_iter().rev().collect();
+        return Err(format!("yt-dlp ha fallito:\n{}", tail.trim()));
+    }
+    if !target.exists() {
+        return Err("Download finito ma il file mp3 non è stato trovato".into());
+    }
+    Ok(target.to_string_lossy().to_string())
+}
+
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -615,6 +763,10 @@ fn main() {
             analyze_structure,
             analyze_chords,
             write_text_file,
+            yt_dlp_version,
+            update_yt_dlp,
+            download_youtube,
+            delete_session,
         ])
         .run(tauri::generate_context!())
         .expect("Errore avvio applicazione Tauri");

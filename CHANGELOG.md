@@ -3,6 +3,12 @@
 Più recente in alto. Una riga per modifica.
 
 
+## Griglia accordi (da testare)
+- Pulsante 🎶: `scripts/analyze_chords.py` (librosa: chroma CQT + template maj/min/7/maj7/min7 + Viterbi) sugli stem armonici; salva `chords.json` nella sessione
+- Griglia mobile (`src/chords.js`): un quadrato per movimento, battute da 4 (selettore 2-6), accordo mostrato dove cambia, scorrimento fluido col brano, clic su un quadrato = vai lì
+- Pulsanti ◀1 / 1▶ per spostare il primo tempo; nomi C G Am oppure Do Sol Lam; si adatta allo slider TON
+- Rust: nuovo comando `analyze_chords` (helper condiviso con `analyze_structure`)
+
 ## Rilevamento automatico sezioni (da testare)
 - Pulsante 🪄: lancia `scripts/analyze_structure.py` (All-In-One, ripiego librosa) sul mix degli stem; crea marker automatici (rilanciando si sostituiscono solo quelli automatici); salva `analysis.json` con battute e downbeat per griglia/accordi futuri
 
